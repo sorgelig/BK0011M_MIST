@@ -23,6 +23,10 @@ There are couple disk images in [extra](https://github.com/sorgelig/BK0011M/tree
 
 *Most documents are in Russian languange.*
 
+### HDD Utility
+Supplied [HDD Utility](https://github.com/sorgelig/BK0011M/blob/master/SW/bkhdutil.exe) can be used to concatenate separate DSK image into one VHD image. You can put it to root of SD card. If you will name it as bk0011m.vhd then it will autoload at start (requires IO firmware update).
+
+
 Press F12 to access OSD menu.
 
 ##### Keyboard map:
