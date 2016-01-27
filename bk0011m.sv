@@ -386,7 +386,7 @@ end
 wire virq_req60, virq_req274;
 wire virq_ack60, virq_ack274;
 
-vic_wb #(.N(3)) vic 
+vic_wb #(.N(2)) vic 
 (
 	.wb_clk_i(wb_clk),
 	.wb_rst_i(sys_init),

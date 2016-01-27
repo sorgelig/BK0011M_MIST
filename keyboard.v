@@ -121,6 +121,8 @@ always @(posedge sys_init or posedge wb_clk) begin
 		if(!old_stb662 && stb662) begin
 			data_o <= reg662;
 			reg660[7] <= 1'b0;
+			req274 <= 1'b0;
+			req60  <= 1'b0;
 		end 
 
 		old_ack60 <= virq_ack60;
