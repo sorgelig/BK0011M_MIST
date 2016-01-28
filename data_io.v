@@ -99,7 +99,7 @@ always@(posedge sck, posedge ss) begin
 		if((cmd == UIO_FILE_TX) && (cnt == 15)) begin
 			// prepare 
 			if(sdi) begin
-				addr <= 25'hA0000;
+				addr <= (idx) ? 25'hA0000 : 25'h80000;
 				downloading_reg <= 1'b1;
 			end else begin
 				downloading_reg <= 1'b0;

@@ -361,7 +361,7 @@ always @ (posedge wb_clk) begin
 									else  state <= 8'd50; // read
 					end else begin
 					   //DSK access
-						if((wb_adr != 16'o177132) || rR1[15] /*|| (ioctl_index != 4)*/ || !ioctl_size) begin
+						if((wb_adr != 16'o177132) || rR1[15] || !ioctl_index || !ioctl_size) begin
 							error[7:0] <= 8'd6;
 							rPSW[0]    <= 1'b1;
 							state      <= 100;

@@ -7,7 +7,7 @@ This project of [popular USSR home computer](https://en.wikipedia.org/wiki/Elect
 - Raw DSK image support (read-only, Disk A)
 - Multipatitioned VHD image (read-write, Disk C+)
 - AY8910 Sound with 1.71MHz clock
-- Joystick on 177714 port
+- Joystick
 - Mouse
 
 ### Planned features:
@@ -16,6 +16,8 @@ This project of [popular USSR home computer](https://en.wikipedia.org/wiki/Elect
 
 ### Installation:
 Copy the *.rbf file at the root of the SD card. You can rename the file to core.rbf if you want the MiST to load it automatically at startup.
+
+Copy [bk0011m.rom](https://github.com/sorgelig/BK0011M/tree/master/releases) to root of SD card.
 
 For PAL mode (RGBS output) you need to put [mist.ini](https://github.com/sorgelig/ZX_Spectrum-128K_MIST/tree/master/releases/mist.ini) file to the root of SD card. Set the option **scandoubler_disable** for desired video output.
 

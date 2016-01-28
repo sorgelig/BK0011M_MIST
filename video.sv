@@ -20,14 +20,10 @@ module video(
 	
 	input         scandoubler_disable,
 
-	input	 [15:0] cache_addr,    // 2 screens with 16KB each.
+	input	 [14:0] cache_addr,    // 2 screens with 16KB each.
 	input	 [15:0] cache_data,
 	input	  [1:0] cache_wtbt,
 	input			  cache_we,      // write strobe
-	
-	input			  cache_rd,      // read strobe
-	output [15:0] cache_q,
-	
 	
 	// registers
 	input			  wb_clk,
@@ -54,18 +50,14 @@ assign wb_irq2 = irq2 && !reg662[14];
 reg irq2 = 1'b0;
 
 dpram ram(
-	.address_a(cache_addr[15:1]),
+	.wraddress(cache_addr[14:1]),
 	.byteena_a(cache_wtbt),
 	.clock(clk_ram),
-	.data_a(cache_data),
-	.rden_a(cache_rd),
-	.wren_a(cache_we),
-	.q_a(cache_q),
+	.data(cache_data),
+	.wren(cache_we),
 
-	.address_b({screen_bank, addr}),
-	.wren_b(1'b0),
-	.rden_b(1'b1),
-	.q_b(data)
+	.rdaddress({screen_bank, addr}),
+	.q(data)
 );
 
 reg  [9:0] hc;

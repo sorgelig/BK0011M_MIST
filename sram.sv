@@ -365,16 +365,16 @@ wire [24:0] ramp1 = (page_reg[10:8] == 3'b110) ? 25'H00000 :
 
 wire [24:0] romp1 = page_reg[0] ? 25'H80000 :
 						  page_reg[1] ? 25'H84000 :
-						  page_reg[3] ? 25'H8C000 :
-						  page_reg[4] ? 25'H90000 : 25'H00000;
+						  page_reg[3] ? 25'H88000 :
+						  page_reg[4] ? 25'H8C000 : 25'H00000;
 
 wire [24:0] ram_addr = ((wb_adr[15:14] == 2'b00) ? 25'H00000 :
-							   (wb_adr[15:14] == 2'b11) ? 25'H88000 :
+							   (wb_adr[15:14] == 2'b11) ? 25'H90000 :
 							   (wb_adr[15:14] == 2'b01) ? ramp0     :
 							                      romp1 ? romp1     : ramp1 ) | wb_adr[13:0];
 
 wire [24:0] copy_vaddr = ((mem_copy_addr[15:14] == 2'b00) ? 25'H00000 :
-							     (mem_copy_addr[15:14] == 2'b11) ? 25'H88000 :
+							     (mem_copy_addr[15:14] == 2'b11) ? 25'H90000 :
 							     (mem_copy_addr[15:14] == 2'b01) ? ramp0     :
 							                               romp1 ? romp1     : ramp1 ) | mem_copy_addr[13:0];
 
@@ -384,7 +384,7 @@ assign screen_write[0] = ((ram_addr & 25'H1C000) == 25'H14000);
 assign screen_write[1] = ((ram_addr & 25'H1C000) == 25'H18000);
 
 wire is_ram = !wb_adr[15] || (!wb_adr[14] && !romp1);
-wire is_rom = !is_ram && (wb_adr < 16'o177600) && (ram_addr < 25'H8C000); //Currently only ROM page 0,1 and 140000-167777 available
+wire is_rom = !is_ram && (wb_adr < 16'o177600);
 
 wire [15:0] data_o;
 

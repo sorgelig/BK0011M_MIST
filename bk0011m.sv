@@ -248,6 +248,19 @@ cpu_reset reset
 	.aclo(vm_aclo_in)
 );
 
+// Wait for bk0011m.rom loading
+reg sys_ready = 1'b0;
+integer initwait;
+always @(posedge wb_clk) begin
+	if(!sys_ready) begin
+		if(initwait < 5000000) begin 
+			initwait <= initwait + 1;
+		end else begin
+			sys_ready <= 1'b1;
+		end
+	end
+end
+
 vm1_wb cpu
 (
    .vm_clk_p(clk_cpu), 			// positive processor clock
@@ -331,51 +344,14 @@ sram_wb ram(
    .wb_dat_o(ram_data),
 	.wb_ack(ram_ack),
 
-	.mem_copy(!sys_ready || dsk_copy),
-	.mem_copy_virt(sys_ready ? dsk_copy_virt : 1'b0),
-	.mem_copy_addr(sys_ready ? dsk_copy_addr : copy_addr_sram),
-	.mem_copy_data_i(sys_ready ? dsk_copy_data_o : copy_data),
+	.mem_copy(dsk_copy),
+	.mem_copy_virt(dsk_copy_virt),
+	.mem_copy_addr(dsk_copy_addr),
+	.mem_copy_data_i(dsk_copy_data_o),
 	.mem_copy_data_o(dsk_copy_data_i),
-	.mem_copy_we(sys_ready ? dsk_copy_we : copy_stb_sram),
-	.mem_copy_rd(sys_ready ? dsk_copy_rd : 1'b0)
+	.mem_copy_we(dsk_copy_we),
+	.mem_copy_rd(dsk_copy_rd)
 );
-
-
-//______________________________________________________________________________
-//
-// Copy preloaded ROM from DPRAM to SRAM
-//
-
-reg sys_ready = 1'b0;
-
-reg copy_stb_cache;
-reg copy_stb_sram;
-reg  [15:0] copy_addr_cache = 16'd0;
-wire [24:0] copy_addr_sram  = {9'b000001000, copy_addr_cache};
-wire [15:0] copy_data;
-
-integer initwait;
-reg [2:0] state;
-
-always @(posedge wb_clk) begin
-	if(!sys_ready) begin
-		if(initwait < 500000) begin 
-			initwait <= initwait + 1;
-		end else begin
-			case(state)
-				3'd0, 
-				3'd1: copy_stb_cache <= 1'b1;
-				3'd2: copy_stb_cache <= 1'b0;
-				3'd3, 
-				3'd4: copy_stb_sram  <= 1'b1;
-				3'd5: copy_stb_sram  <= 1'b0;
-				3'd6: copy_addr_cache <= copy_addr_cache + 16'd2;
-				3'd7: sys_ready <= (copy_addr_cache == 0);
-			endcase
-			state <= state + 3'd1;
-		end
-	end
-end
 
 
 //______________________________________________________________________________
@@ -526,14 +502,11 @@ wire video_stb = wb_we & wb_cyc & wb_stb & (screen_write[1] | screen_write[0]);
 video video(
 	.*,
 	.color(~status[1]),
-	.cache_addr(sys_ready ? {screen_write[1], wb_adr[13:0]} : copy_addr_cache),
+	.cache_addr({screen_write[1], wb_adr[13:0]}),
 	.cache_data(wb_out),
 	.cache_wtbt(wb_sel),
 	.cache_we(video_stb),
 	
-	.cache_q(copy_data),
-	.cache_rd(sys_ready ? 1'b0 : copy_stb_cache),
-
    .wb_dat_o(scrreg_data),
 	.wb_ack(scrreg_ack)
 );
