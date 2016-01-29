@@ -310,7 +310,7 @@ wire [15:0]	cpureg_data = (cpureg_sel && !wb_we) ? cpureg_dout : 16'd0;
 wire        cpureg_sel  = wb_cyc & (wb_adr[15:4] == (16'o177700 >> 4));
 wire        cpureg_ack;
 
-wire [15:0]	sysreg_data = {1'b1, ~bk0010, 7'b0000001, ~key_down, 2'b00, super_flg, 3'b000};
+wire [15:0]	sysreg_data = {1'b1, ~bk0010, 7'b0000001, ~key_down, 3'b000, super_flg, 2'b00};
 
 assign wb_ack    = cpureg_ack  | keyboard_ack  | scrreg_ack  | ram_ack | disk_ack;
 assign wb_in     = cpureg_data | keyboard_data | scrreg_data | ram_data;
@@ -318,16 +318,9 @@ assign wb_in     = cpureg_data | keyboard_data | scrreg_data | ram_data;
 wire sysreg_write = wb_stb & vm_sel[1] & wb_we;
 wire port_write   = wb_stb & vm_sel[2] & wb_we;
 
-reg super_flg = 1'b0;
-wire sysreg_acc   = wb_stb & vm_sel[1];
-
-always @(posedge sysreg_acc) begin
-	if(wb_we) begin 
-		if((!wb_sel[1] || (!wb_out[11] && wb_sel[1])) && wb_sel[0]) super_flg <= wb_out[3];
-	end else begin 
-		super_flg <= 1'b0;
-	end
-end
+reg  super_flg  = 1'b0;
+wire sysreg_acc = wb_stb & vm_sel[1];
+always @(posedge sysreg_acc) super_flg <= wb_we;
 
 //______________________________________________________________________________
 //
