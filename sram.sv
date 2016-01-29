@@ -304,6 +304,8 @@ module sram_wb (
 	input         init,
 	input         clk_ram,
 	input         clk_037,
+	input         bk0010,
+	input         disk_rom,
 	
 	input         wb_clk,
 	input  [15:0] wb_adr,
@@ -334,57 +336,88 @@ sram ram(
 	
 	.clk_sdram(clk_ram),	
 
-	.addr(mem_copy ? (mem_copy_virt ? copy_vaddr[24:1] : mem_copy_addr[24:1]) : ram_addr[24:1]),
+	.addr(ram_addr[24:1]),
 	.dout(data_o),
-	.din (mem_copy ? mem_copy_data_i     : wb_dat_i),
-	.wtbt(mem_copy ? 2'b11               : wb_sel),
-	.we  (mem_copy ? copy_allow          : ram_we),
-	.rd  (mem_copy ? mem_copy_rd         : ram_rd)
+	.din (mem_copy ? mem_copy_data_i : wb_dat_i),
+	.wtbt(mem_copy ? 2'b11           : wb_sel),
+	.we  (mem_copy ? copy_we         : ram_we),
+	.rd  (mem_copy ? mem_copy_rd     : ram_rd)
 );
 
 assign mem_copy_data_o = data_o;
 
-reg [15:0] page_reg = 16'b0001100000000000; // BK0010 map by default
+// Disable empty ROM pages
+reg [4:0] page_avail = 5'b00010;
+always @(posedge mem_copy_we) begin
+	if(!mem_copy_virt && mem_copy) begin
+		case(mem_copy_addr[24:14])
+			11'd32: page_avail[0] <= (page_avail[0] || mem_copy_data_i);
+			11'd33: page_avail[1] <= (page_avail[1] || mem_copy_data_i);
+			11'd34: page_avail[3] <= (page_avail[3] || mem_copy_data_i);
+			11'd35: page_avail[4] <= (page_avail[4] || mem_copy_data_i);
+		endcase
+	end
+end
+
+reg [15:0] page_reg;
 always @(posedge sysreg_write) if(wb_dat_i[11] && wb_sel[1]) page_reg <= wb_dat_i;
 
-wire [24:0] ramp0 = (page_reg[14:12] == 3'b110) ? 25'H00000 :
-						  (page_reg[14:12] == 3'b000) ? 25'H04000 :
-						  (page_reg[14:12] == 3'b010) ? 25'H08000 :
-						  (page_reg[14:12] == 3'b011) ? 25'H0C000 :
-						  (page_reg[14:12] == 3'b100) ? 25'H10000 :
-						  (page_reg[14:12] == 3'b001) ? 25'H14000 :
-						  (page_reg[14:12] == 3'b111) ? 25'H18000 : 25'H1C000;
+/*
+  Addresses 0x20000 - 0x7FFFF are reserved for future expansions and mods.
+*/
 
-wire [24:0] ramp1 = (page_reg[10:8] == 3'b110) ? 25'H00000 :
-						  (page_reg[10:8] == 3'b000) ? 25'H04000 :
-						  (page_reg[10:8] == 3'b010) ? 25'H08000 :
-						  (page_reg[10:8] == 3'b011) ? 25'H0C000 :
-						  (page_reg[10:8] == 3'b100) ? 25'H10000 :
-						  (page_reg[10:8] == 3'b001) ? 25'H14000 :
-						  (page_reg[10:8] == 3'b111) ? 25'H18000 : 25'H1C000;
+function [24:0] page2addr;
+	input [2:0] value;
+begin
+	case (value)
+		 3'b110: page2addr = 25'H00000;
+		 3'b000: page2addr = 25'H04000;
+		 3'b010: page2addr = 25'H08000;
+		 3'b011: page2addr = 25'H0C000;
+		 3'b100: page2addr = 25'H10000;
+		 3'b001: page2addr = 25'H14000;
+		 3'b111: page2addr = 25'H18000;
+		default: page2addr = 25'H1C000;
+   endcase
+end
+endfunction
 
-wire [24:0] romp1 = page_reg[0] ? 25'H80000 :
-						  page_reg[1] ? 25'H84000 :
-						  page_reg[3] ? 25'H88000 :
-						  page_reg[4] ? 25'H8C000 : 25'H00000;
+wire [24:0] romp1 = (page_reg[0] & page_avail[0]) ? 25'H80000 :
+						  (page_reg[1] & page_avail[1]) ? 25'H84000 :
+						  (page_reg[3] & page_avail[3]) ? 25'H88000 :
+						  (page_reg[4] & page_avail[4]) ? 25'H8C000 :
+						                                  25'HA0000 ;
 
-wire [24:0] ram_addr = ((wb_adr[15:14] == 2'b00) ? 25'H00000 :
-							   (wb_adr[15:14] == 2'b11) ? 25'H90000 :
-							   (wb_adr[15:14] == 2'b01) ? ramp0     :
-							                      romp1 ? romp1     : ramp1 ) | wb_adr[13:0];
+wire [15:0] addr = mem_copy ? mem_copy_addr[15:0] : wb_adr;
 
-wire [24:0] copy_vaddr = ((mem_copy_addr[15:14] == 2'b00) ? 25'H00000 :
-							     (mem_copy_addr[15:14] == 2'b11) ? 25'H90000 :
-							     (mem_copy_addr[15:14] == 2'b01) ? ramp0     :
-							                               romp1 ? romp1     : ramp1 ) | mem_copy_addr[13:0];
+wire [24:0] map11 = (addr[15:14] == 2'b00)  ? 25'H00000 :
+						  (addr[15:14] == 2'b01)  ? page2addr(page_reg[14:12]) :
+						  (addr[15:13] == 3'b110) ? 25'H90000 :								  // bit13 aware
+						  (addr[15:13] == 3'b111) ? (disk_rom ? 25'H92000 : 25'HA0000) : // bit13 aware
+						  (page_reg  & 16'b11011) ? romp1     : 
+												          page2addr(page_reg[10:8]);
 
-wire copy_allow = mem_copy_we && (!mem_copy_virt || (copy_vaddr < 25'H80000));
+wire [24:0] map10 = (addr[15:14] == 2'b00)  ? 25'H00000 :
+						  (addr[15:14] == 2'b01)  ? 25'H14000 :
+						  (addr[15:13] == 3'b100) ? 25'H94000 :
+						  (addr[15:13] == 3'b101) ? (disk_rom ? 25'H06000 : 25'H96000) : // bit13 aware
+						  (addr[15:13] == 3'b110) ? (disk_rom ? 25'H08000 : 25'H98000) : // bit13 aware
+						                            (disk_rom ? 25'H9E000 : 25'H9A000) ; // bit13 aware
 
-assign screen_write[0] = ((ram_addr & 25'H1C000) == 25'H14000);
-assign screen_write[1] = ((ram_addr & 25'H1C000) == 25'H18000);
+wire [24:0] vaddr   = (bk0010 ? map10 : map11) | addr[13:0];
+wire [24:0] ram_addr = (mem_copy && !mem_copy_virt) ? mem_copy_addr : vaddr;
 
-wire is_ram = !wb_adr[15] || (!wb_adr[14] && !romp1);
-wire is_rom = !is_ram && (wb_adr < 16'o177600);
+wire copy_we = mem_copy_we && (!mem_copy_virt || (vaddr < 25'H80000));
+
+assign screen_write[0] = (ram_addr[24:14] == 11'd5);
+assign screen_write[1] = (ram_addr[24:14] == 11'd6);
+
+
+///////////////////////////////////////////
+
+
+wire is_ram = ram_addr < 25'H80000;
+wire is_rom = !is_ram && (wb_adr < 16'o177600) && (ram_addr < 25'HA0000);
 
 wire [15:0] data_o;
 

@@ -3,6 +3,7 @@ module disk_wb
 (
 	input         clk_ram,
 	input         reset,
+	input         disk_rom,
 
 	input         SPI_SCK,
 	input         SPI_SS2,
@@ -155,7 +156,7 @@ wire sel134 = wb_we && wb_cyc && (wb_adr[15:1] == (16'o177134 >> 1));
 
 wire stb132 = wb_stb && sel132;
 wire stb134 = wb_stb && sel134;
-wire valid  = sel130 | sel132 | sel134;
+wire valid  = disk_rom & (sel130 | sel132 | sel134);
 
 assign wb_ack = wb_stb & valid & ack[1];
 always @ (posedge wb_clk) begin
@@ -163,7 +164,7 @@ always @ (posedge wb_clk) begin
 	ack[1] <= wb_cyc & ack[0];
 end
 
-wire reg_access = stb132 | stb134;
+wire reg_access = disk_rom & (stb132 | stb134);
 
 reg  [7:0] state = 8'b0;
 reg [15:0] rSP;

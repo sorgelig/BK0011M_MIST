@@ -6,6 +6,7 @@ module video(
 
 	input         color,
 	input   [1:0] screen_write,
+	input         bk0010,
 
 	input         SPI_SCK,
 	input         SPI_SS3,
@@ -154,16 +155,17 @@ osd #(-10'd36, 10'd0, 3'd4) osd(
 
 ///////////////////////////////////////////////////////////////////////////////////////
 
-wire [1:0] ena;
-reg  [1:0] ack;
-reg [15:0] reg664 = 16'o1330;
-reg [15:0] reg662 = 16'o40000;
+wire  [1:0] ena;
+reg   [1:0] ack;
+reg  [15:0] reg664  = 16'o1330;
+reg  [15:0] reg662m = 16'o40000;
+wire [15:0] reg662  = bk0010 ? 16'o40000 : reg662m;
 wire screen_bank = reg662[15];
 
 reg [15:0] data_o;
 assign wb_dat_o = (valid && !wb_we) ? data_o : 16'd0;
 
-wire sel662 = wb_cyc && (wb_adr[15:1] == (16'o177662 >> 1)) && wb_we;
+wire sel662 = wb_cyc && (wb_adr[15:1] == (16'o177662 >> 1)) && wb_we && !bk0010;
 wire stb662 = wb_stb && sel662;
 
 wire sel664 = wb_cyc && (wb_adr[15:1] == (16'o177664 >> 1));
@@ -188,7 +190,7 @@ always @(posedge stb664) begin
 end
 
 always @(posedge stb662) begin
-	if(wb_sel[1]) reg662 <= wb_dat_i;
+	if(wb_sel[1]) reg662m <= wb_dat_i;
 end
 
 endmodule

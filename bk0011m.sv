@@ -195,9 +195,9 @@ always @(posedge clk_24mhz) begin
 	end
 end
 
-user_io #(.STRLEN(47)) user_io (
+user_io #(.STRLEN(86)) user_io (
 	.*,
-	.conf_str("BK0011M;;F4,DSK;S3,VHD;O1,Color,On,Off;T2,Reset"),
+	.conf_str("BK0011M;;F4,DSK;S3,VHD;O1,Color,On,Off;O5,Model,BK0011M,BK0010;O6,Disk,On,Off;T2,Reset"),
 
 	// ps2 keyboard emulation
 	.ps2_clk(clk_ps2),				// 12-16khz provided by core
@@ -301,7 +301,7 @@ vm1_wb cpu
 	.wbs_dat_o(cpureg_dout),	// slave wishbone data output
 										//
    .vm_reg14(port_data),		// register 177714 data input
-   .vm_reg16({9'b110000001, ~key_down, 2'b00, super_flg, 3'b000}),	// register 177716 data input
+   .vm_reg16(sysreg_data),		// register 177716 data input
    .vm_sel(vm_sel)    			// register select outputs
 );
 
@@ -309,6 +309,8 @@ wire [15:0]	cpureg_dout;
 wire [15:0]	cpureg_data = (cpureg_sel && !wb_we) ? cpureg_dout : 16'd0;
 wire        cpureg_sel  = wb_cyc & (wb_adr[15:4] == (16'o177700 >> 4));
 wire        cpureg_ack;
+
+wire [15:0]	sysreg_data = {1'b1, ~bk0010, 7'b0000001, ~key_down, 2'b00, super_flg, 3'b000};
 
 assign wb_ack    = cpureg_ack  | keyboard_ack  | scrreg_ack  | ram_ack | disk_ack;
 assign wb_in     = cpureg_data | keyboard_data | scrreg_data | ram_data;
@@ -335,6 +337,8 @@ end
 wire [15:0]	ram_data;
 wire        ram_ack;
 wire  [1:0] screen_write;
+reg         bk0010;
+reg         disk_rom;
 
 sram_wb ram(
 	.*,
@@ -353,6 +357,10 @@ sram_wb ram(
 	.mem_copy_rd(dsk_copy_rd)
 );
 
+always @(negedge vm_aclo_in) begin
+	bk0010   <= status[5];
+	disk_rom <= ~status[6];
+end
 
 //______________________________________________________________________________
 //
