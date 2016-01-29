@@ -242,7 +242,7 @@ wire [15:0] wb_dat_i = wb_out;
 cpu_reset reset
 (
 	.clk(CLOCK_27[0]),
-	.button(buttons[1] || status[0] || status[2]),
+	.button(buttons[1] || status[0] || status[2] || key_reset),
 	.plock(~plock || !sys_ready),
 	.dclo(vm_dclo_in),
 	.aclo(vm_aclo_in)
@@ -385,6 +385,7 @@ always @(posedge sysreg_write) if(!wb_out[11] && wb_sel[1]) key_stop_block <= wb
 
 wire        key_down;
 wire        key_stop;
+wire        key_reset;
 wire [15:0]	keyboard_data;
 wire        keyboard_ack;
 

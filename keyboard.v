@@ -21,7 +21,8 @@ module keyboard_wb
 	input          PS2_CLK,
 	input          PS2_DAT,
 	output         key_down,
-	output         key_stop
+	output         key_stop,
+	output         key_reset
 );
 
 wire [1:0] ena;
@@ -52,6 +53,7 @@ assign virq_req274 = req274;
 
 assign key_down = (saved_key != 8'd0);
 assign key_stop = (state_stop != 8'd0);
+assign key_reset= state_reset;
 
 reg        pressed;
 reg        e0;
@@ -62,6 +64,7 @@ reg  [6:0] state_caps;
 reg  [6:0] state_rus;
 reg  [7:0] state_stop;
 reg  [7:0] saved_key;
+reg        state_reset;
 
 wire [6:0] decoded;
 wire       autoar2;
@@ -97,6 +100,7 @@ always @(posedge sys_init or posedge wb_clk) begin
 	if(sys_init) begin
 		pressed     <= 1'b1;
 		e0          <= 1'b0;
+		state_reset <= 8'd0;
 		state_stop  <= 8'd0;
 		state_caps  <= 7'h00;
 		state_shift <= 1'b0;
@@ -143,7 +147,8 @@ always @(posedge sys_init or posedge wb_clk) begin
 					9'H012: state_shift <= pressed;
 					9'H011: state_alt   <= pressed;
 					9'H014: state_ctrl  <= pressed;
-					8'h009: if(pressed) state_stop <= 8'd40;
+					8'H009: if(pressed) state_stop <= 8'd40;
+					8'H078: state_reset <= (pressed && state_ctrl);
 					9'H007: ; // disable F12 handling
 					default: begin
 
