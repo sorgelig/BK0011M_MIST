@@ -103,11 +103,11 @@ always @(negedge clk_12) begin
 	viden <= !HBlank && !VBlank;
 end
 
-wire [15:0] palettes[15:0] = '{
-	16'hF620, 16'hFB20, 16'hF6B0, 16'h6920,
-	16'h96B0, 16'h8AC0, 16'h1350, 16'hDC50,
-	16'hBA30, 16'h9810, 16'hFFF0, 16'hFD60,
-	16'hB260, 16'hD640, 16'h9BD0, 16'h9420
+wire [15:0] palettes[16] = '{
+	16'h9420, 16'h9BD0, 16'hD640, 16'hB260,
+	16'hFD60, 16'hFFF0, 16'h9810, 16'hBA30,
+	16'hDC50, 16'h1350, 16'h8AC0, 16'h96B0,
+	16'h6920, 16'hF6B0, 16'hFB20, 16'hF620
 };
 wire [15:0] comp = palettes[reg662[11:8]] >> {dotc[0],dotc[1], 2'b00};
 
