@@ -142,7 +142,7 @@ reg [1:0] clk_246div;
 always @(posedge clk_24mhz) begin
 	clk_24div  <= clk_24div  + 1'd1;
 	clk_246div <= clk_246div + 1'd1;
-	if(clk_246div == 2'd2) begin
+	if(clk_246div == (2'd2 + bk0010)) begin
 		wb_clk  <= ~wb_clk;
 		clk_cpu <= wb_cyc ? wb_clk : wb_clk ? 1'b0 : !dsk_copy;
 		clk_246div <= 2'd0;
@@ -154,8 +154,8 @@ wire   clk_ram   = clk_120mhz;
 wire   clk_6mhz  = clk_24div[1];
 wire   clk_037   = clk_6mhz;
 wire   clk_pix   = clk_24mhz;
-reg    wb_clk;   //4MHz
-reg    clk_cpu;  //4MHz with waits
+reg    wb_clk;   //4MHz or 3MHz
+reg    clk_cpu;  //4MHz or 3MHz with waits
 
 //______________________________________________________________________________
 //
@@ -310,7 +310,7 @@ wire [15:0]	cpureg_data = (cpureg_sel && !wb_we) ? cpureg_dout : 16'd0;
 wire        cpureg_sel  = wb_cyc & (wb_adr[15:4] == (16'o177700 >> 4));
 wire        cpureg_ack;
 
-wire [15:0]	sysreg_data = {1'b1, ~bk0010, 7'b0000001, ~key_down, 3'b000, super_flg, 2'b00};
+wire [15:0]	sysreg_data = {start_addr, 1'b1, ~key_down, 3'b000, super_flg, 2'b00};
 
 assign wb_ack    = cpureg_ack  | keyboard_ack  | scrreg_ack  | ram_ack | disk_ack;
 assign wb_in     = cpureg_data | keyboard_data | scrreg_data | ram_data;
@@ -330,14 +330,18 @@ always @(posedge sysreg_acc) super_flg <= wb_we;
 wire [15:0]	ram_data;
 wire        ram_ack;
 wire  [1:0] screen_write;
-reg         bk0010;
+reg         bk0010     = 1'b0;
 reg         disk_rom;
+wire  [7:0] start_addr;
+wire [15:0] ext_mode;
+reg         cold_start = 1'b1;
 
 sram_wb ram(
 	.*,
 
 	.init(!plock),
-	
+	.sysreg_sel(vm_sel[1]),
+
    .wb_dat_o(ram_data),
 	.wb_ack(ram_ack),
 
@@ -350,9 +354,22 @@ sram_wb ram(
 	.mem_copy_rd(dsk_copy_rd)
 );
 
-always @(negedge vm_aclo_in) begin
-	bk0010   <= status[5];
-	disk_rom <= ~status[6];
+reg old_dclo, old_sel;
+integer reset_time;
+always @(posedge wb_clk) begin
+	old_dclo <= vm_dclo_in;
+	old_sel  <= vm_sel[1];
+
+	if(!old_dclo && vm_dclo_in) reset_time = 0;
+	if(vm_dclo_in) reset_time++;
+
+	if(old_dclo && !vm_dclo_in) begin
+		cold_start <= (bk0010 != status[5]) || (reset_time >= 1500000*2);
+		bk0010     <= status[5];
+		disk_rom   <= ~status[6];
+	end
+	
+	if(old_sel && !vm_sel[1]) cold_start <= 1'b0;
 end
 
 //______________________________________________________________________________
@@ -528,6 +545,6 @@ wire [15:0] dsk_copy_data_o;
 wire        dsk_copy_we;
 wire        dsk_copy_rd;
 
-disk_wb disk(.*, .reset(buttons[1] || status[2]), .wb_ack(disk_ack));
+disk_wb disk(.*, .reset(vm_dclo_in), .wb_ack(disk_ack));
 
 endmodule

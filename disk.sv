@@ -4,6 +4,8 @@ module disk_wb
 	input         clk_ram,
 	input         reset,
 	input         disk_rom,
+	input         bk0010,
+	output [15:0] ext_mode,
 
 	input         SPI_SCK,
 	input         SPI_SS2,
@@ -143,8 +145,30 @@ reg         copy_we;
 reg         copy_rd;
 wire [15:0] copy_data_i = dsk_copy_data_i;
 
-//Allow R/W for stop/start disk motor. No actions are performed.
-wire sel130 = wb_cyc && (wb_adr[15:1] == (16'o177130 >> 1));
+//Allow write for stop/start disk motor and extended memory mode.
+wire       sel130  = wb_cyc && (wb_adr[15:1] == (16'o177130 >> 1)) && wb_sel[0];
+wire       sel130w = sel130 && wb_we;
+wire       sel130r = sel130 && !wb_we && !(bk0010 && mode130[2]);
+assign     ext_mode = mode130;
+reg [15:0] mode130 = 16'o160;
+reg        mode130_strobe = 1'b0;
+
+always @(posedge wb_stb, posedge reset) begin
+	if(reset) begin
+		mode130_strobe <= 1'b0;
+		mode130 <= 16'o160;
+	end else begin
+		if(sel130w) begin
+			mode130[3:2] <= wb_dat_i[3:2];
+			if(mode130_strobe) begin 
+				mode130[6:4] <= wb_dat_i[6:4];
+				mode130_strobe <= 1'b0;
+			end else begin 
+				mode130_strobe <= (wb_dat_i == 16'o6);
+			end
+		end
+	end;
+end
 
 //LBA access. Main access for disk read and write.
 wire sel132 = wb_we && wb_cyc && (wb_adr[15:1] == (16'o177132 >> 1));
@@ -156,7 +180,7 @@ wire sel134 = wb_we && wb_cyc && (wb_adr[15:1] == (16'o177134 >> 1));
 
 wire stb132 = wb_stb && sel132;
 wire stb134 = wb_stb && sel134;
-wire valid  = disk_rom & (sel130 | sel132 | sel134);
+wire valid  = disk_rom & (sel130w | sel130r | sel132 | sel134);
 
 assign wb_ack = wb_stb & valid & ack[1];
 always @ (posedge wb_clk) begin
@@ -192,7 +216,7 @@ reg  processing = 1'b0;
 reg  [1:0] ack;
 
 always @ (posedge wb_clk) begin
-	reg  old_access, old_mounted;
+	reg  old_access, old_mounted, old_reset;
 	reg  [5:0] ack;
 
 	old_access <= reg_access;
@@ -208,7 +232,8 @@ always @ (posedge wb_clk) begin
 		sd_rd      <= 1'b0;
 	end
 
-	if(reset) begin
+	old_reset <= reset;
+	if(!old_reset && reset) begin
 		processing <= 1'b0;
 		io_busy    <= 1'b0;
 		sd_wr      <= 1'b0;
@@ -388,7 +413,7 @@ always @ (posedge wb_clk) begin
 						rPSW[0]    <= 1'b0;
 						state      <= 100;
 					end else begin
-						copy_addr  <= lbaro;
+						copy_addr  <= lbaro[24:0];
 						copy_virt  <= 1'b0;
 						copy_rd    <= 1'b0;
 						copy_we    <= 1'b0;
