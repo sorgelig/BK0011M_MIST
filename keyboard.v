@@ -55,7 +55,7 @@ assign key_down = (saved_key != 8'd0);
 assign key_stop = (state_stop != 8'd0);
 assign key_reset= state_reset;
 
-reg        pressed;
+reg        pressed = 1'b1;
 reg        e0;
 reg        state_shift;
 reg        state_alt;
@@ -71,16 +71,12 @@ wire       autoar2;
 wire [7:0] keyb_data;
 wire       keyb_valid;
 
-// PS/2 interface
 ps2_intf ps2(
 	wb_clk,
-	!sys_init,
+	1'b1, //BK reset may not reset low-level driver!
 		
 	PS2_CLK,
 	PS2_DAT,
-
-	// Byte-wide data interface - only valid for one clock
-	// so must be latched externally if required
 	keyb_data,
 	keyb_valid
 );
@@ -94,18 +90,12 @@ wire [6:0] ascii = state_ctrl ? {2'b00, decoded[4:0]} :
                     lowercase ? decoded - (state_rus ^ state_caps) : 
                     uppercase ? decoded + (state_rus ^ state_caps) : decoded; 
 
-always @(posedge sys_init or posedge wb_clk) begin
-	reg old_stb660, old_stb662, old_ack60, old_ack274;
+always @(posedge wb_clk) begin
+	reg old_stb660, old_stb662, old_ack60, old_ack274, old_sys_init;
 	
-	if(sys_init) begin
-		pressed     <= 1'b1;
-		e0          <= 1'b0;
-		state_reset <= 8'd0;
-		state_stop  <= 8'd0;
+	old_sys_init <= sys_init;
+	if(!old_sys_init && sys_init) begin
 		state_caps  <= 7'h00;
-		state_shift <= 1'b0;
-		state_alt   <= 1'b0;
-		state_ctrl  <= 1'b0;
 		state_rus   <= 7'h20;
 		saved_key   <= 8'd0;
 		reg660[6]   <= 1'b1;
