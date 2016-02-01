@@ -289,22 +289,23 @@ endmodule
 ///////////////////////////////////////////////////////////////////////////////////
 
 /*
-	ROM map:
-	
-   0x80000-0x83FFF 11M_PAGE10 BASIC11
-   0x84000-0x87FFF 11M_PAGE11 BASIC11 + BIOS11Ext
-   0x88000-0x8BFFF 11M_PAGE12 (empty)
-   0x8C000-0x8FFFF 11M_PAGE13 Debugger
+	Memory map:
 
-   0x90000-0x91FFF o140000 BIOS11
-   0x92000-0x93FFF o160000 DISKIO Stub
+	0x00000-0x1FFFF standard BK0011M RAM
+   0x20000-0xDFFFF (768KB) reserved for expansions and mods.
 
-   0x94000-0x95FFF o100000 BIOS10
-   0x96000-0x9BFFF o120000 BASIC10
-   0x9C000-0x9CFFF o160000 A16M ROM
-	
-   0x9D000-0x9FFFF empty, not used
+   0xE0000-0xE3FFF 11M_PAGE10 BASIC11
+   0xE4000-0xE7FFF 11M_PAGE11 BASIC11 + BIOS11Ext
+   0xE8000-0xEBFFF 11M_PAGE12 (empty)
+   0xEC000-0xEFFFF 11M_PAGE13 Debugger (13;1C 100000G)
+   0xF0000-0xF1FFF o140000 BIOS11
+   0xF2000-0xF3FFF o160000 DISKIO Stub
 
+   0xF4000-0xF5FFF o100000 BIOS10
+   0xF6000-0xFBFFF o120000 BASIC10
+   0xFC000-0xFCFFF o160000 A16M ROM
+
+   0xFD000-0xFFFFF not used
 */
 
 
@@ -386,27 +387,27 @@ wire        a16m_7W;
 wire [24:0] a16m_empty;
 
 always @(ext_mode) begin
-	a16m_empty = ext_mode[3] ? 25'H00000 : 25'HA0000;
+	a16m_empty = ext_mode[3] ? 25'H00000 : 25'H100000;
 	
 	case(ext_mode[6:4])
 
 		//A16M_START_MODE
 		default: begin
-				a16m_page = '{25'H00000, 25'H22000, 25'H20000, 25'H9C000};
+				a16m_page = '{25'H00000, 25'H22000, 25'H20000, 25'HFC000};
 				a16m_0R = 1'b0;
 				a16m_7E = 1'b1;
 				a16m_7W = 1'b0;
 			end
 
 		`A16M_STD10_MODE: begin
-				a16m_page = '{25'H00000, 25'H22000, 25'H20000, 25'H9C000};
+				a16m_page = '{25'H00000, 25'H22000, 25'H20000, 25'HFC000};
 				a16m_0R = 1'b0;
 				a16m_7E = 1'b0;
 				a16m_7W = 1'b0;
 			end
 
 		`A16M_OZU10_MODE: begin
-				a16m_page = '{25'H20000, 25'H22000, a16m_empty, 25'H9C000};
+				a16m_page = '{25'H20000, 25'H22000, a16m_empty, 25'HFC000};
 				a16m_0R = 1'b0;
 				a16m_7E = 1'b0;
 				a16m_7W = 1'b0;
@@ -420,7 +421,7 @@ always @(ext_mode) begin
 			end
 
 		`A16M_STD11_MODE: begin
-				a16m_page = '{25'H00000, a16m_empty, a16m_empty, 25'H9C000};
+				a16m_page = '{25'H00000, a16m_empty, a16m_empty, 25'HFC000};
 				a16m_0R = 1'b0;
 				a16m_7E = 1'b0;
 				a16m_7W = 1'b0;
@@ -434,14 +435,14 @@ always @(ext_mode) begin
 			end
 
 		`A16M_OZUZZ_MODE: begin
-				a16m_page = '{25'H20000, 25'H22000, a16m_empty, 25'H9C000};
+				a16m_page = '{25'H20000, 25'H22000, a16m_empty, 25'HFC000};
 				a16m_0R = 1'b1;
 				a16m_7E = 1'b0;
 				a16m_7W = 1'b0;
 			end
 
 		`A16M_HLT11_MODE: begin
-				a16m_page = '{25'HA0000, a16m_empty, 25'H20000, 25'H22000};
+				a16m_page = '{25'H100000, a16m_empty, 25'H20000, 25'H22000};
 				a16m_0R = 1'b0;
 				a16m_7E = 1'b0;
 				a16m_7W = 1'b1;
@@ -465,17 +466,13 @@ always @(posedge mem_copy_we) begin
 		endcase
 		
 		//A16M start address
-		if(mem_copy_addr == 25'H9CFCE) start_a16m <= mem_copy_data_i[15:8];
+		if(mem_copy_addr == 25'HFCFCE) start_a16m <= mem_copy_data_i[15:8];
 	end
 end
 
 reg [15:0] page_reg;
 wire sysreg_write = wb_stb & sysreg_sel & wb_we;
 always @(posedge sysreg_write) if(wb_dat_i[11] && wb_sel[1]) page_reg <= wb_dat_i;
-
-/*
-  Addresses 0x20000 - 0x7FFFF are reserved for future expansions and mods.
-*/
 
 function [24:0] page2addr;
 	input [2:0] value;
@@ -493,29 +490,29 @@ begin
 end
 endfunction
 
-wire [24:0] romp1 = (page_reg[0] & page_avail[0]) ? 25'H80000 :
-						  (page_reg[1] & page_avail[1]) ? 25'H84000 :
-						  (page_reg[3] & page_avail[3]) ? 25'H88000 :
-						  (page_reg[4] & page_avail[4]) ? 25'H8C000 :
-						                                  25'HA0000 ;
+wire [24:0] romp1 = (page_reg[0] & page_avail[0]) ? 25'HE0000 :
+						  (page_reg[1] & page_avail[1]) ? 25'HE4000 :
+						  (page_reg[3] & page_avail[3]) ? 25'HE8000 :
+						  (page_reg[4] & page_avail[4]) ? 25'HEC000 :
+						                                  25'H100000 ;
 
 wire [15:0] addr = mem_copy ? mem_copy_addr[15:0] : wb_adr;
 
 wire [24:0] map11 = ((addr[15:14] == 2'b00)  ? 25'H00000 :
 						   (addr[15:14] == 2'b01)  ? page2addr(page_reg[14:12]) :
-						   (addr[15:13] == 3'b110) ? 25'H90000 :
-						   (addr[15:13] == 3'b111) ? (disk_rom ? 25'H92000 : 25'HA0000) :
+						   (addr[15:13] == 3'b110) ? 25'HF0000 :
+						   (addr[15:13] == 3'b111) ? (disk_rom ? 25'HF2000 : 25'H100000) :
 						   (page_reg  & 16'b11011) ? romp1     : 
 												          page2addr(page_reg[10:8])) | addr[13:0];
 
 wire a16m_7 = (mem_copy ? mem_copy_we : wb_we) ? a16m_7W : a16m_7E;
-wire [24:0] map10d    = ((addr[15:12] == 4'b1111) && !a16m_7) ? 25'HA0000 : a16m_page[addr[14:13]];
-wire [24:0] map10s[8] = '{25'H00000, 25'H02000, 25'H14000, 25'H16000, 25'H94000, 25'H96000, 25'H98000, 25'H9A000};
+wire [24:0] map10d    = ((addr[15:12] == 4'b1111) && !a16m_7) ? 25'H100000 : a16m_page[addr[14:13]];
+wire [24:0] map10s[8] = '{25'H00000, 25'H02000, 25'H14000, 25'H16000, 25'HF4000, 25'HF6000, 25'HF8000, 25'HFA000};
 wire [24:0] map10     = ((addr[15] && disk_rom && map10d) ? map10d : map10s[addr[15:13]]) | addr[12:0];
 
 wire [24:0] vaddr = bk0010 ? map10 : map11;
 wire [24:0] ram_addr = (mem_copy && !mem_copy_virt) ? mem_copy_addr : vaddr;
-wire ro = (vaddr >= 25'H80000) || (bk0010 && disk_rom && (addr[15:12] == 4'b1000) && a16m_0R);
+wire ro = (vaddr >= 25'HE0000) || (bk0010 && disk_rom && (addr[15:12] == 4'b1000) && a16m_0R);
 wire copy_we = mem_copy_we && (!mem_copy_virt || !ro);
 
 wire [15:0] top_addr = bk0010 ? ((disk_rom && !a16m_7E) ? 16'o177000 : 16'o177600) :
@@ -529,7 +526,7 @@ assign screen_write[1] = (ram_addr[24:14] == 11'd6);
 
 
 wire is_ram = !ro;
-wire is_rom = !is_ram && (wb_adr < top_addr) && (ram_addr < 25'HA0000);
+wire is_rom = !is_ram && (wb_adr < top_addr) && (ram_addr < 25'H100000);
 
 wire [15:0] data_o;
 

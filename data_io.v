@@ -42,7 +42,7 @@ module data_io (
 assign downloading = downloading_reg;
 assign d     = data;
 assign a     = {write_a[24:1], 1'b0};
-assign size  = a - 25'hA0000;
+assign size  = a - 25'h100000;
 assign index = idx;
 assign wr = (wrx[1] | wrx[2]);
 
@@ -59,8 +59,8 @@ reg [4:0]  cnt;
 reg [4:0]  idx;
 reg [2:0]  wrx;
 
-reg [24:0] addr    = 25'hA0000;
-reg [24:0] write_a = 25'hA0000;
+reg [24:0] addr    = 25'h100000;
+reg [24:0] write_a = 25'h100000;
 reg rclk = 1'b0;
 reg next = 1'b0;
 
@@ -99,7 +99,7 @@ always@(posedge sck, posedge ss) begin
 		if((cmd == UIO_FILE_TX) && (cnt == 15)) begin
 			// prepare 
 			if(sdi) begin
-				addr <= (idx) ? 25'hA0000 : 25'h80000;
+				addr <= (idx) ? 25'h100000 : 25'hE0000;
 				downloading_reg <= 1'b1;
 			end else begin
 				downloading_reg <= 1'b0;

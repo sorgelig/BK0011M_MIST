@@ -400,7 +400,7 @@ always @ (posedge wb_clk) begin
 							rPSW[0]    <= 1'b1;
 							state      <= 100;
 						end else begin 
-							lbaro <= (lbaro << 9) + 32'hA0000;
+							lbaro <= (lbaro << 9) + 32'h100000;
 							state <= 30; // read
 						end
 					end
