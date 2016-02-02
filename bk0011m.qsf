@@ -358,10 +358,7 @@ set_global_assignment -name FLOW_ENABLE_IO_ASSIGNMENT_ANALYSIS ON
 set_global_assignment -name PARTITION_NETLIST_TYPE SOURCE -section_id Top
 set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id Top
 set_global_assignment -name PARTITION_COLOR 16764057 -section_id Top
-set_global_assignment -name MIF_FILE boot11_orig.mif
-set_global_assignment -name MIF_FILE boot11_mstd.mif
-set_global_assignment -name MIF_FILE boot11_dbg.mif
-set_global_assignment -name MIF_FILE bootrom.mif
+set_global_assignment -name SDC_FILE bk0011m.sdc
 set_global_assignment -name VERILOG_FILE VM1/vm1_vic.v
 set_global_assignment -name VERILOG_FILE VM1/vm1_tve.v
 set_global_assignment -name VERILOG_FILE VM1/vm1_plm.v
@@ -379,8 +376,9 @@ set_global_assignment -name VERILOG_FILE sector_w2b.v
 set_global_assignment -name VERILOG_FILE sector_b2d.v
 set_global_assignment -name VERILOG_FILE sector_b2w.v
 set_global_assignment -name VERILOG_FILE dpram.v
-set_global_assignment -name VERILOG_FILE sigma_delta_dac.v
 set_global_assignment -name SYSTEMVERILOG_FILE sram.sv
+set_global_assignment -name SYSTEMVERILOG_FILE memory.sv
+set_global_assignment -name VERILOG_FILE sigma_delta_dac.v
 set_global_assignment -name VERILOG_FILE ay8910.v
 set_global_assignment -name VERILOG_FILE scandoubler.v
 set_global_assignment -name SYSTEMVERILOG_FILE video.sv

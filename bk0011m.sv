@@ -330,13 +330,15 @@ always @(posedge sysreg_acc) super_flg <= wb_we;
 wire [15:0]	ram_data;
 wire        ram_ack;
 wire  [1:0] screen_write;
-reg         bk0010     = 1'b0;
-reg         disk_rom;
+reg         bk0010     = 1'bZ;
+reg         disk_rom   = 1'bZ;
 wire  [7:0] start_addr;
 wire [15:0] ext_mode;
 reg         cold_start = 1'b1;
+reg         mode_start = 1'b1;
 
-sram_wb ram(
+memory_wb memory
+(
 	.*,
 
 	.init(!plock),
@@ -344,6 +346,7 @@ sram_wb ram(
 
    .wb_dat_o(ram_data),
 	.wb_ack(ram_ack),
+	.d_strobe(),
 
 	.mem_copy(dsk_copy),
 	.mem_copy_virt(dsk_copy_virt),
@@ -354,22 +357,27 @@ sram_wb ram(
 	.mem_copy_rd(dsk_copy_rd)
 );
 
-reg old_dclo, old_sel;
 integer reset_time;
 always @(posedge wb_clk) begin
+	reg old_dclo, old_sel, old_bk0010, old_disk_rom;
 	old_dclo <= vm_dclo_in;
 	old_sel  <= vm_sel[1];
 
-	if(!old_dclo && vm_dclo_in) reset_time = 0;
-	if(vm_dclo_in) reset_time++;
+	if(!old_dclo && vm_dclo_in) begin 
+		reset_time = 0;
+		old_bk0010   <= bk0010;
+		old_disk_rom <= disk_rom;
+	end
 
-	if(old_dclo && !vm_dclo_in) begin
-		cold_start <= (bk0010 != status[5]) || (reset_time >= 1500000*2);
+	if(vm_dclo_in) begin 
+		reset_time++;
 		bk0010     <= status[5];
 		disk_rom   <= ~status[6];
+		cold_start <= (old_bk0010 != bk0010) || (old_disk_rom != disk_rom) || (reset_time >= 1500000*2);
+		mode_start <= 1'b1;
 	end
 	
-	if(old_sel && !vm_sel[1]) cold_start <= 1'b0;
+	if(old_sel && !vm_sel[1]) mode_start <= 1'b0;
 end
 
 //______________________________________________________________________________

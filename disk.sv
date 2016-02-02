@@ -150,18 +150,19 @@ wire       sel130  = wb_cyc && (wb_adr[15:1] == (16'o177130 >> 1)) && wb_sel[0];
 wire       sel130w = sel130 && wb_we;
 wire       sel130r = sel130 && !wb_we && !(bk0010 && mode130[2]);
 assign     ext_mode = mode130;
-reg [15:0] mode130 = 16'o160;
+reg [15:0] mode130;
 reg        mode130_strobe = 1'b0;
 
 always @(posedge wb_stb, posedge reset) begin
 	if(reset) begin
 		mode130_strobe <= 1'b0;
-		mode130 <= 16'o160;
+		mode130 <= bk0010 ? 16'o160 : 16'o140;
 	end else begin
 		if(sel130w) begin
 			mode130[3:2] <= wb_dat_i[3:2];
 			if(mode130_strobe) begin 
-				mode130[6:4] <= wb_dat_i[6:4];
+				mode130[6:4]   <= wb_dat_i[6:4];
+				mode130[11:8]  <= {wb_dat_i[0], wb_dat_i[3], wb_dat_i[2], wb_dat_i[10]};
 				mode130_strobe <= 1'b0;
 			end else begin 
 				mode130_strobe <= (wb_dat_i == 16'o6);
