@@ -35,12 +35,7 @@ set_global_assignment -name NUM_PARALLEL_PROCESSORS ALL
 # Pin & Location Assignments
 # ==========================
 set_location_assignment PIN_7 -to LED
-set_location_assignment PIN_22 -to CLOCK_50[0]
-set_location_assignment PIN_23 -to CLOCK_50[1]
-set_location_assignment PIN_128 -to CLOCK_32[0]
-set_location_assignment PIN_129 -to CLOCK_32[1]
-set_location_assignment PIN_54 -to CLOCK_27[0]
-set_location_assignment PIN_55 -to CLOCK_27[1]
+set_location_assignment PIN_54 -to CLOCK_27
 set_location_assignment PIN_144 -to VGA_R[5]
 set_location_assignment PIN_143 -to VGA_R[4]
 set_location_assignment PIN_142 -to VGA_R[3]
@@ -358,7 +353,7 @@ set_global_assignment -name FLOW_ENABLE_IO_ASSIGNMENT_ANALYSIS ON
 set_global_assignment -name PARTITION_NETLIST_TYPE SOURCE -section_id Top
 set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id Top
 set_global_assignment -name PARTITION_COLOR 16764057 -section_id Top
-set_global_assignment -name SDC_FILE bk0011m.sdc
+set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top
 set_global_assignment -name VERILOG_FILE VM1/vm1_vic.v
 set_global_assignment -name VERILOG_FILE VM1/vm1_tve.v
 set_global_assignment -name VERILOG_FILE VM1/vm1_plm.v
@@ -376,12 +371,12 @@ set_global_assignment -name VERILOG_FILE sector_w2b.v
 set_global_assignment -name VERILOG_FILE sector_b2d.v
 set_global_assignment -name VERILOG_FILE sector_b2w.v
 set_global_assignment -name VERILOG_FILE dpram.v
-set_global_assignment -name SYSTEMVERILOG_FILE sram.sv
+set_global_assignment -name VERILOG_FILE sram.v
 set_global_assignment -name SYSTEMVERILOG_FILE memory.sv
 set_global_assignment -name VERILOG_FILE sigma_delta_dac.v
+set_global_assignment -name SYSTEMVERILOG_FILE ym2149.sv
 set_global_assignment -name VERILOG_FILE ay8910.v
 set_global_assignment -name VERILOG_FILE scandoubler.v
 set_global_assignment -name SYSTEMVERILOG_FILE video.sv
 set_global_assignment -name SYSTEMVERILOG_FILE disk.sv
 set_global_assignment -name SYSTEMVERILOG_FILE bk0011m.sv
-set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top

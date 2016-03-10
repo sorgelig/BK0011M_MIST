@@ -86,39 +86,40 @@ endmodule
 // Top interface for MIST
 //
 
-module bk0011m(
-   input  wire [1:0]  CLOCK_27,            // Input clock 27 MHz
+module bk0011m
+(
+   input         CLOCK_27, // Input clock 27 MHz
 
-   output wire [5:0]  VGA_R,
-   output wire [5:0]  VGA_G,
-   output wire [5:0]  VGA_B,
-   output wire        VGA_HS,
-   output wire        VGA_VS,
+   output  [5:0] VGA_R,
+   output  [5:0] VGA_G,
+   output  [5:0] VGA_B,
+   output        VGA_HS,
+   output        VGA_VS,
 	 
-   output wire        LED,
+   output        LED,
 
-   output wire        AUDIO_L,
-   output wire        AUDIO_R,
+   output        AUDIO_L,
+   output        AUDIO_R,
 
-   input  wire        SPI_SCK,
-   output wire        SPI_DO,
-   input  wire        SPI_DI,
-   input  wire        SPI_SS2,
-   input  wire        SPI_SS3,
-   input  wire        SPI_SS4,
-   input  wire        CONF_DATA0,
+   input         SPI_SCK,
+   output        SPI_DO,
+   input         SPI_DI,
+   input         SPI_SS2,
+   input         SPI_SS3,
+   input         SPI_SS4,
+   input         CONF_DATA0,
 
-   output wire [12:0] SDRAM_A,
-   inout  wire [15:0] SDRAM_DQ,
-   output wire        SDRAM_DQML,
-   output wire        SDRAM_DQMH,
-   output wire        SDRAM_nWE,
-   output wire        SDRAM_nCAS,
-   output wire        SDRAM_nRAS,
-   output wire        SDRAM_nCS,
-   output wire [1:0]  SDRAM_BA,
-   output wire        SDRAM_CLK,
-   output wire        SDRAM_CKE
+   output [12:0] SDRAM_A,
+   inout  [15:0] SDRAM_DQ,
+   output        SDRAM_DQML,
+   output        SDRAM_DQMH,
+   output        SDRAM_nWE,
+   output        SDRAM_nCAS,
+   output        SDRAM_nRAS,
+   output        SDRAM_nCS,
+   output  [1:0] SDRAM_BA,
+   output        SDRAM_CLK,
+   output        SDRAM_CKE
 );
 
 //______________________________________________________________________________
@@ -126,14 +127,14 @@ module bk0011m(
 // Clocks
 //
 
-wire clk_120mhz, clk_120mhzS, clk_24mhz, clk_psg, plock;
+wire clk_24mhz, clk_psg, plock;
 
 pll pll(
-	.inclk0(CLOCK_27[0]),
-	.c0(clk_120mhz),  		//120MHz, 0 deg
-	.c1(clk_120mhzS),  		//120MHz, 60 deg
-	.c2(clk_24mhz),    		//24MHz
-	.c3(clk_psg),    			//1.71MHz
+	.inclk0(CLOCK_27),
+	.c0(clk_ram),
+	.c1(SDRAM_CLK),
+	.c2(clk_24mhz),
+	.c3(clk_psg),    //1.71MHz
 	.locked(plock)
 );
 
@@ -149,8 +150,7 @@ always @(posedge clk_24mhz) begin
 	end
 end
 
-assign SDRAM_CLK = clk_120mhzS;
-wire   clk_ram   = clk_120mhz;
+wire   clk_ram;
 wire   clk_6mhz  = clk_24div[1];
 wire   clk_037   = clk_6mhz;
 wire   clk_pix   = clk_24mhz;
@@ -241,7 +241,7 @@ wire [15:0] wb_dat_i = wb_out;
 
 cpu_reset reset
 (
-	.clk(CLOCK_27[0]),
+	.clk(CLOCK_27),
 	.button(buttons[1] || status[0] || status[2] || key_reset),
 	.plock(~plock || !sys_ready),
 	.dclo(vm_dclo_in),
