@@ -491,28 +491,29 @@ wire [7:0] channel_c;
 sigma_delta_dac #(.MSBI(10)) dac_l (
 	.CLK(wb_clk),
 	.RESET(sys_init),
-	.DACin({1'b0, channel_a, 1'b0} + {2'b00, channel_b} + {1'b00, spk_out, 7'b0000000}),
+	.DACin({1'b0, channel_a, 1'b0} + {2'b00, channel_b} + {2'b00, spk_out, 7'b0000000}),
 	.DACout(AUDIO_L)
 );
 
 sigma_delta_dac #(.MSBI(10)) dac_r(
 	.CLK(wb_clk),
 	.RESET(sys_init),
-	.DACin({1'b0, channel_c, 1'b0} + {2'b00, channel_b} + {1'b00, spk_out, 7'b0000000}),
+	.DACin({1'b0, channel_c, 1'b0} + {2'b00, channel_b} + {2'b00, spk_out, 7'b0000000}),
 	.DACout(AUDIO_R)
 );
 
-ay8910 ay8910(
+ym2149 psg
+(
 	.CLK(clk_psg),
-	.EN(1'b1),
 	.RESET(sys_init),
-   .BDIR(vm_sel[2] & wb_we & wb_stb),
-	.CS(1'b1),
-   .BC(wb_sel[1]),
-   .DI(~wb_dat_i[7:0]),
-   .CHANNEL_A(channel_a),
-   .CHANNEL_B(channel_b),
-   .CHANNEL_C(channel_c)
+	.BDIR(vm_sel[2] & wb_we & wb_stb),
+	.BC(wb_sel[1]),
+	.DI(~wb_dat_i[7:0]),
+	.CHANNEL_A(channel_a),
+	.CHANNEL_B(channel_b),
+	.CHANNEL_C(channel_c),
+	.SEL(0),
+	.MODE(0)
 );
 
 
