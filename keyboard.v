@@ -2,50 +2,49 @@
 
 module keyboard_wb
 (
-	input				wb_clk,
-	input	 [15:0]	wb_adr,
-	input	 [15:0]	wb_dat_i,
-   output [15:0]	wb_dat_o,
-	input				wb_cyc,
-	input	  			wb_we,
-	input	  [1:0]	wb_sel,
-	input				wb_stb,
-	output			wb_ack,
+	input         clk_bus,
 
-	output			virq_req60,
-	input				virq_ack60,
-	output			virq_req274,
-	input				virq_ack274,
+	input  [15:0] bus_din,
+	output [15:0] bus_dout,
+	input  [15:0] bus_addr,
 
-	input          sys_init,
-	input          PS2_CLK,
-	input          PS2_DAT,
-	output         key_down,
-	output         key_stop,
-	output         key_reset
+	input         bus_reset,
+	input         bus_sync,
+	input         bus_we,
+	input   [1:0] bus_wtbt,
+	input         bus_stb,
+	output        bus_ack,
+
+	output        virq_req60,
+	input         virq_ack60,
+	output        virq_req274,
+	input         virq_ack274,
+
+	input         PS2_CLK,
+	input         PS2_DAT,
+	output        key_down,
+	output        key_stop,
+	output        key_reset
 );
 
 wire [1:0] ena;
-reg  [1:0] ack;
+reg        ack;
 
 reg [15:0] reg660 = 16'b1000000;
 reg [15:0] reg662 = 16'd0;
 
 reg [15:0] data_o;
-assign wb_dat_o = (valid && !wb_we) ? data_o : 16'd0;
+assign bus_dout = valid ? data_o : 16'd0;
 
-wire sel660 = wb_cyc && (wb_adr[15:1] == (16'o177660 >> 1));
-wire sel662 = wb_cyc && ((wb_adr[15:1] == (16'o177662 >> 1)) && !wb_we); //Read-only
-wire stb660 = wb_stb && sel660;
-wire stb662 = wb_stb && sel662;
+wire sel660 = bus_sync && (bus_addr[15:1] == (16'o177660 >> 1));
+wire sel662 = bus_sync && ((bus_addr[15:1] == (16'o177662 >> 1)) && !bus_we); //Read-only
+wire stb660 = bus_stb && sel660;
+wire stb662 = bus_stb && sel662;
 
 wire valid  = sel660 | sel662;
 
-assign wb_ack = wb_stb & valid & (ack[1] | wb_we);
-always @ (posedge wb_clk) begin
-	ack[0] <= wb_stb & valid;
-	ack[1] <= wb_cyc & ack[0];
-end
+assign bus_ack = bus_stb & valid & ack;
+always @ (posedge clk_bus) ack <= bus_stb;
 
 reg req60, req274;
 assign virq_req60 = req60;
@@ -72,7 +71,7 @@ wire [7:0] keyb_data;
 wire       keyb_valid;
 
 ps2_intf ps2(
-	wb_clk,
+	clk_bus,
 	1'b1, //BK reset may not reset low-level driver!
 		
 	PS2_CLK,
@@ -90,11 +89,11 @@ wire [6:0] ascii = state_ctrl ? {2'b00, decoded[4:0]} :
                     lowercase ? decoded - (state_rus ^ state_caps) : 
                     uppercase ? decoded + (state_rus ^ state_caps) : decoded; 
 
-always @(posedge wb_clk) begin
-	reg old_stb660, old_stb662, old_ack60, old_ack274, old_sys_init;
+always @(posedge clk_bus) begin
+	reg old_stb660, old_stb662, old_ack60, old_ack274, old_bus_reset;
 	
-	old_sys_init <= sys_init;
-	if(!old_sys_init && sys_init) begin
+	old_bus_reset <= bus_reset;
+	if(!old_bus_reset && bus_reset) begin
 		state_caps  <= 7'h00;
 		state_rus   <= 7'h20;
 		saved_key   <= 8'd0;
@@ -107,7 +106,7 @@ always @(posedge wb_clk) begin
 
 		old_stb660 <= stb660;
 		if(!old_stb660 && stb660) begin
-			if(wb_we) reg660[6] <= wb_dat_i[6];
+			if(bus_we) reg660[6] <= bus_din[6];
 				else data_o <= reg660;
 		end
 

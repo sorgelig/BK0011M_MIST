@@ -19,9 +19,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>. 
 //
 
-//Use acknowledge trottle similar to KR1801VP1-037
-`define VP037
-
 module memory_wb 
 (
 	inout  [15:0] SDRAM_DQ,
@@ -46,20 +43,19 @@ module memory_wb
 	input         cold_start,
 	input         mode_start,
 
-	input         wb_clk,
-	input  [15:0] wb_adr,
+	input         clk_bus,
 
-	output [15:0] wb_dat_o,
-	input  [15:0] wb_dat_i,
+	input  [15:0] bus_din,
+	output [15:0] bus_dout,
+	input  [15:0] bus_addr,
 
-	input         wb_cyc,
-	input         wb_we,
-	input   [1:0] wb_sel,
-	input         wb_stb,
-	output        wb_ack,
+	input         bus_sync,
+	input         bus_we,
+	input   [1:0] bus_wtbt,
+	input         bus_stb,
+	output        bus_ack,
 
 	output  [1:0] screen_write,
-	output reg    d_strobe,
 
 	input         mem_copy,
 	input         mem_copy_virt,
@@ -70,11 +66,6 @@ module memory_wb
 	input         mem_copy_rd
 );
 
-
-always @(posedge wb_stb) begin
-	d_strobe <= (wb_adr == 16'o177676);
-end
-
 sram ram
 (
 	.*,
@@ -82,14 +73,15 @@ sram ram
 	.clk_sdram(clk_ram),	
 
 	.addr(ram_addr[24:1]),
-	.dout(data_o),
-	.din (mem_copy ? mem_copy_data_i : wb_dat_i),
-	.wtbt(mem_copy ? 2'b11           : wb_sel),
-	.we  (mem_copy ? copy_we         : ram_we),
-	.rd  (mem_copy ? mem_copy_rd     : ram_rd)
+	.dout(ram_o),
+	.din (mem_copy ? mem_copy_data_i : bus_din),
+	.wtbt(mem_copy ? 2'b11           : bus_wtbt),
+	.we  (mem_copy ? copy_we         : bus_we & ram_stb),
+	.rd  (mem_copy ? mem_copy_rd     : ~bus_we & ram_stb)
 );
 
-assign mem_copy_data_o = data_o;
+wire [15:0] ram_o;
+assign mem_copy_data_o = ram_o;
 
 //
 // Memory map
@@ -387,8 +379,8 @@ always @(posedge mem_copy_we) begin
 end
 
 reg [15:0] page_reg;
-wire sysreg_write = wb_stb & sysreg_sel & wb_we;
-always @(posedge sysreg_write) if(wb_dat_i[11] && wb_sel[1]) page_reg <= wb_dat_i;
+wire sysreg_write = bus_stb & sysreg_sel & bus_we;
+always @(posedge sysreg_write) if(bus_din[11] && bus_wtbt[1]) page_reg <= bus_din;
 
 function [24:0] page2addr;
 	input [2:0] value;
@@ -411,7 +403,7 @@ wire [24:0] romp1 = (page_reg[0] & page_avail[0]) ? `ROM_P10 :
 						  (page_reg[3] & page_avail[3]) ? `ROM_P12 :
 						  (page_reg[4] & page_avail[4]) ? `ROM_P13 : `NOMEM;
 
-wire [15:0] addr = mem_copy ? mem_copy_addr[15:0] : wb_adr;
+wire [15:0] addr = mem_copy ? mem_copy_addr[15:0] : bus_addr;
 
 wire [24:0] map11s = ((addr[15:14] == 2'b00)  ? `RAM_P00 :
 						    (addr[15:14] == 2'b01)  ? page2addr(page_reg[14:12])     :
@@ -423,7 +415,7 @@ wire [24:0] map11e = (addr[15:12] == 4'b1111)  ? (smk512_7 | addr[11:0]) :
                       smk512_page[addr[14:13]] ? (smk512_page[addr[14:13]] | addr[12:0]) : 25'H0;
 wire [24:0] map11  = (addr[15] && ext_rom && map11e) ? map11e : map11s;
 
-wire a16m_7 = (mem_copy ? mem_copy_we : wb_we) ? a16m_7wr : a16m_7en;
+wire a16m_7 = (mem_copy ? mem_copy_we : bus_we) ? a16m_7wr : a16m_7en;
 wire [24:0] map10de   = ((addr[15:12] == 4'b1111) && !a16m_7) ? `NOMEM : a16m_page[addr[14:13]];
 wire [24:0] map10ds   = (addr[15:13] == 4'b101) ? `RAM_P02 : // two different pages because not aligned to 8kb
                         (addr[15:13] == 4'b110) ? `RAM_P03 : // ---/---
@@ -445,54 +437,37 @@ assign screen_write[1] = ({ram_addr[24:14], 14'd0} == `RAM_P06);
 
 ///////////////////////////////////////////
 
+wire is_ram  = ~ro & (bus_addr < 16'o177000);
+wire is_rom  = ~is_ram & (bus_addr < top_addr) & (ram_addr < `NOMEM);
+wire valid   =  is_ram | (is_rom & ~bus_we);
+wire ram_stb =  bus_sync & valid & bus_stb;
 
-wire is_ram = !ro && (wb_adr < 16'o177000);
-wire is_rom = !is_ram && (wb_adr < top_addr) && (ram_addr < `NOMEM);
-wire valid  = wb_cyc && (is_ram || (is_rom && !wb_we));
-wire ram_we =  wb_we && valid && wb_stb;
-wire ram_rd = !wb_we && valid && wb_stb;
+assign bus_dout = (bus_sync & valid) ? ram_o : 16'd0;
+assign bus_ack  = vp037_ack | ext_ack;
 
-wire [15:0] data_o;
-assign wb_dat_o = (valid && !wb_we) ? data_o : 16'd0;
+wire legacy_ram = (ram_addr < `RAM_EXT);
 
-`ifdef VP037
+// VP1-037 contention
+wire vp037_ack = TRPLY & ~RASEL;
 
-reg [2:0] strobe;
-always @ (posedge wb_clk) begin
-	strobe[0] <= valid & wb_stb;
-	strobe[1] <= strobe[0];
-	strobe[2] <= strobe[1];
-end
-
-wire dio = ~(strobe[1] & valid & wb_stb);
+wire dio = legacy_ram & valid & bus_stb;
+reg PC90, RASEL, TRPLY;
+always_latch if (RASEL) TRPLY = 1'b1; else if(~dio) TRPLY = 1'b0;
 
 reg [2:0] PC;
-reg		 PC90;
-reg		 RASEL;
-reg		 TRPLY;
-
-always @(*) if (RASEL) TRPLY = 1'b1; else if (dio) TRPLY = 1'b0;
-assign wb_ack = TRPLY & ~RASEL;
-
-always @(negedge clk_037) if (~PC[0]) PC90 <= PC[1];
-always @(negedge clk_037) PC[2:0] <= PC[2:0] + 3'b001;
+always @(negedge clk_037) begin
+	PC <= PC + 1'd1;
+	if(~PC[0]) PC90 <= PC[1];
+end
 
 always @(posedge clk_037) begin
-	if (PC90 & PC[1]) RASEL <= 1'b0;
-		else if (PC90 & ~PC[1] & PC[2]) RASEL <= ~(wb_ack | dio);
+	if (PC90 & PC[1]) RASEL <= 0;
+		else if (PC90 & ~PC[1] & PC[2]) RASEL <= bus_sync & ~vp037_ack & dio;
 end
 
-`else
-
-reg  [2:0] ack;
-assign wb_ack = wb_stb && valid && ack[2];
-always @ (posedge wb_clk) begin
-	ack[0] <= valid && wb_stb;
-	ack[1] <= wb_cyc && ack[0];
-	ack[2] <= wb_cyc && ack[1];
-end
-
-`endif
+// Ext RAM or ROM ack
+reg  ack;
+wire ext_ack = ram_stb & !legacy_ram & ack;
+always @(posedge clk_bus) ack <= bus_stb;
 
 endmodule
-

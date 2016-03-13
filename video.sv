@@ -2,7 +2,7 @@
 
 module video(
 	input         clk_pix, // Video clock (24 MHz)
-	input			  clk_ram, // Video ram clock (>50 MHz)
+	input         clk_ram, // Video ram clock (>50 MHz)
 
 	input         color,
 	input   [1:0] screen_write,
@@ -18,37 +18,36 @@ module video(
 	output  [5:0] VGA_B,
 	output        VGA_VS,
 	output        VGA_HS,
-	
+
 	input         scandoubler_disable,
 
-	input	 [14:0] cache_addr,    // 2 screens with 16KB each.
-	input	 [15:0] cache_data,
-	input	  [1:0] cache_wtbt,
-	input			  cache_we,      // write strobe
+	input  [14:0] cache_addr,    // 2 screens with 16KB each.
+	input  [15:0] cache_data,
+	input   [1:0] cache_wtbt,
+	input         cache_we,      // write strobe
 	
 	// registers
-	input			  wb_clk,
-	input	 [15:0] wb_adr,
-	input	 [15:0] wb_dat_i,
-   output [15:0] wb_dat_o,
-	input			  wb_cyc,
-	input	  		  wb_we,
-	input	  [1:0] wb_sel,
-	input			  wb_stb,
-	output		  wb_ack,
-	output        wb_irq2,
-	input         sys_init
-);
+	input         clk_bus,
 
-`define HPOS 9'd18
-`define VPOS 9'd36
-`define VSYNC 9'd308
+	input  [15:0] bus_din,
+	output [15:0] bus_dout,
+	input  [15:0] bus_addr,
+
+	input         bus_reset,
+	input         bus_sync,
+	input         bus_we,
+	input   [1:0] bus_wtbt,
+	input         bus_stb,
+	output        bus_ack,
+
+	output        irq2
+);
 
 reg clk_12;
 always @(posedge clk_pix) clk_12 <= !clk_12;
 
-assign wb_irq2 = irq2 && !reg662[14];
-reg irq2 = 1'b0;
+assign irq2 = irq && !reg662[14];
+reg irq = 1'b0;
 
 dpram ram(
 	.wraddress(cache_addr[14:1]),
@@ -57,16 +56,21 @@ dpram ram(
 	.data(cache_data),
 	.wren(cache_we),
 
-	.rdaddress({screen_bank, addr}),
+	.rdaddress({screen_bank, vaddr}),
 	.q(data)
 );
 
+wire [15:0] data;
+wire [12:0] vaddr = {vc[7:0] + roll, hc[8:4]};
+
 reg  [9:0] hc;
-wire [8:0] hcpic = hc[9:1] - `HPOS;
 reg  [8:0] vc;
-wire [8:0] vcpic = vc - `VPOS + roll;
 reg  [7:0] roll;
-reg  [8:0] vislines = 9'd256;
+
+reg  [2:0] blank_mask;
+reg  HSync;
+reg  VSync;
+wire CSync = HSync ^ VSync;
 
 always @(posedge clk_12) begin
 	if(hc == 767) begin 
@@ -74,33 +78,33 @@ always @(posedge clk_12) begin
 		if (vc == 311) begin 
 			vc <= 9'd0;
 			roll <= roll_screen;
-			vislines <= full_screen ? 9'd256 : 9'd64;
-			irq2 <= 1'b0;
-		end else begin 
+			blank_mask <= full_screen ? 3'b100 : 3'b111;
+			irq <= 0;
+		end else begin
 			vc <= vc + 1'd1;
-			if (vc == (`VSYNC - 9'd21)) irq2 <= 1'b1;
+
+			if(vc == 268) VSync  <= 1;
+			if(vc == 276) VSync  <= 0;
 		end
 	end else hc <= hc + 1'd1;
+
+	if(hc == 593) HSync  <= 1;
+	if(hc == 649) HSync  <= 0;
+
+	// SECAM has 312.5 lines per field, hence correction for half line.
+	if((vc == 256) && (hc == (649-384))) irq <= 1;
 end
-
-wire HBlank = !((hc[9:1] >= `HPOS) && (hc[9:1] < (`HPOS+9'd256)));
-wire HSync  = (hc[9:1] >= 9'd312);
-
-wire VBlank = !((vc >= `VPOS) && (vc < (`VPOS + vislines)));
-wire VSync  = (vc >= `VSYNC);
-
-wire [15:0] data;
-wire [12:0] addr = (!HBlank && !VBlank) ? {vcpic[7:0],hcpic[7:3]} : 13'b0;
 
 wire  [1:0] dotc = dots[1:0];
 reg  [15:0] dots;
-reg  viden;
-reg  dotm = 1'b0;
+reg         dotm;
 
 always @(negedge clk_12) begin
-	dotm  <= !dotm;
-	dots  <= (data >> {hcpic[2:0], 1'b0});
-	viden <= !HBlank && !VBlank;
+	dotm <= hc[0];
+	if(!hc[0]) begin
+		dots <= {2'b00, dots[15:2]};
+		if(!hc[9] && !(vc[8:6] & blank_mask) && !hc[3:1]) dots <= data;
+	end
 end
 
 wire [15:0] palettes[16] = '{
@@ -111,86 +115,79 @@ wire [15:0] palettes[16] = '{
 };
 wire [15:0] comp = palettes[reg662[11:8]] >> {dotc[0],dotc[1], 2'b00};
 
-wire Rh = viden && (color ? comp[3] : dotc[dotm]);
-wire Rl = viden && (color ? comp[0] : dotc[dotm]);
-wire Gh = viden && (color ? comp[1] : dotc[dotm]);
-wire Bh = viden && (color ? comp[2] : dotc[dotm]);
-wire Gl = Gh;
-wire Bl = Bh;
+wire [1:0] R;
+wire G, B;
+assign {R[1], B, G, R[0]} = color ? comp[3:0] : {4{dotc[dotm]}};
 
-assign VGA_HS     = scandoubler_disable ? ~(HSync ^ VSync) : ~sd_hs;
-assign VGA_VS     = scandoubler_disable ? 1'b1 : ~sd_vs;
-wire [5:0] VGA_Rx = scandoubler_disable ? {Rh, Rh, Rl, Rl, Rl, Rl} : {sd_r, sd_r[1:0]};
-wire [5:0] VGA_Gx = scandoubler_disable ? {Gh, Gh, Gl, Gl, Gl, Gl} : {sd_g, sd_g[1:0]};
-wire [5:0] VGA_Bx = scandoubler_disable ? {Bh, Bh, Bl, Bl, Bl, Bl} : {sd_b, sd_b[1:0]};
+wire [5:0] R_out;
+wire [5:0] G_out;
+wire [5:0] B_out;
 
-wire sd_hs, sd_vs;
-wire [3:0] sd_r;
-wire [3:0] sd_g;
-wire [3:0] sd_b;
+osd #(3'd4) osd
+(
+	.*,
+	.clk_pix(clk_12),
+	.R_in({3{R}}),
+	.G_in({6{G}}),
+	.B_in({6{B}})
+);
+
+wire hs_out, vs_out;
+wire [5:0] r_out;
+wire [5:0] g_out;
+wire [5:0] b_out;
 
 scandoubler scandoubler(
+	.*,
 	.clk_x2(clk_pix),
 	.scanlines(2'b00),
-	    
+
 	.hs_in(HSync),
 	.vs_in(VSync),
-	.r_in({Rh,Rh,Rl,Rl}),
-	.g_in({Gh,Gh,Gl,Gl}),
-	.b_in({Bh,Bh,Bl,Bl}),
-
-	.hs_out(sd_hs),
-	.vs_out(sd_vs),
-	.r_out(sd_r),
-	.g_out(sd_g),
-	.b_out(sd_b)
+	.r_in(R_out),
+	.g_in(G_out),
+	.b_in(B_out)
 );
 
-osd #(-10'd36, 10'd0, 3'd4) osd(
-	.*,
-	.clk_pix(scandoubler_disable ? clk_12 : clk_pix),
-	.OSD_VS(scandoubler_disable ? ~VSync : ~sd_vs),
-	.OSD_HS(scandoubler_disable ? ~HSync : ~sd_hs)
-);
+assign {VGA_HS,  VGA_VS,  VGA_R, VGA_G, VGA_B} = scandoubler_disable ? 
+       {~CSync,  1'b1,    R_out, G_out, B_out}: 
+       {~hs_out, ~vs_out, r_out, g_out, b_out};
 
 ///////////////////////////////////////////////////////////////////////////////////////
 
 wire  [1:0] ena;
-reg   [1:0] ack;
+reg         ack;
 reg  [15:0] reg664  = 16'o1330;
 reg  [15:0] reg662m = 16'o40000;
 wire [15:0] reg662  = bk0010 ? 16'o40000 : reg662m;
 wire screen_bank = reg662[15];
 
 reg [15:0] data_o;
-assign wb_dat_o = (valid && !wb_we) ? data_o : 16'd0;
+assign bus_dout = valid ? data_o : 16'd0;
 
-wire sel662 = wb_cyc && (wb_adr[15:1] == (16'o177662 >> 1)) && wb_we && !bk0010;
-wire stb662 = wb_stb && sel662;
+wire sel662 = bus_sync && (bus_addr[15:1] == (16'o177662 >> 1)) && bus_we && !bk0010;
+wire stb662 = bus_stb && sel662;
 
-wire sel664 = wb_cyc && (wb_adr[15:1] == (16'o177664 >> 1));
-wire stb664 = wb_stb && sel664;
+wire sel664 = bus_sync && (bus_addr[15:1] == (16'o177664 >> 1));
+wire stb664 = bus_stb && sel664;
 
 wire valid  = sel664 || sel662;
 
 wire       full_screen = reg664[9];
 wire [7:0] roll_screen = (reg664[7:0] - 8'o330);
 
-assign wb_ack = wb_stb & valid & ack[1];
-always @ (posedge wb_clk) begin
-	ack[0] <= wb_stb & valid;
-	ack[1] <= wb_cyc & ack[0];
-end
+assign bus_ack = bus_stb & valid & ack;
+always @ (posedge clk_bus) ack <= bus_stb;
 
 always @(posedge stb664) begin
-	if(wb_we) begin 
-		if(wb_sel[1])   reg664[9] <= wb_dat_i[9];
-		if(wb_sel[0]) reg664[7:0] <= wb_dat_i[7:0];
+	if(bus_we) begin 
+		if(bus_wtbt[1])   reg664[9] <= bus_din[9];
+		if(bus_wtbt[0]) reg664[7:0] <= bus_din[7:0];
 	end else data_o <= reg664;
 end
 
 always @(posedge stb662) begin
-	if(wb_sel[1]) reg662m <= wb_dat_i;
+	if(bus_wtbt[1]) reg662m <= bus_din;
 end
 
 endmodule

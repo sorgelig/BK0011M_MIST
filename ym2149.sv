@@ -1,18 +1,18 @@
 
 
 module ym2149(
-   input            CLK,		 // PSG Clock
-   input            RESET,	    // Chip RESET (set all Registers to '0', active hi)
-   input            BDIR,	    // Bus Direction (0 - read , 1 - write)
-   input            CS,		    // Chip Select (active hi)
-   input            BC,		    // Bus control
+   input            CLK,       // PSG Clock
+   input            RESET,     // Chip RESET (set all Registers to '0', active hi)
+   input            BDIR,      // Bus Direction (0 - read , 1 - write)
+   input            CS,	       // Chip Select (active hi)
+   input            BC,	       // Bus control
    input      [7:0] DI,	       // Data In
-   output     [7:0] DO,	       // Data Out
+   output reg [7:0] DO,	       // Data Out
    output reg [7:0] CHANNEL_A, // PSG Output channel A
    output reg [7:0] CHANNEL_B, // PSG Output channel B
    output reg [7:0] CHANNEL_C, // PSG Output channel C
 
-	output     [5:0] ACTIVE,
+   output     [5:0] ACTIVE,
    input            SEL,
    input            MODE
 );
@@ -27,8 +27,8 @@ reg [16:0] poly17;
 // registers
 reg [3:0]  addr;
    
-reg [7:0]  ymreg[0:15];
-reg        env_reset;
+reg [7:0]  ymreg[16];
+reg        env_reset, reset_ack;
    
 reg [4:0]  noise_gen_cnt;
 wire       noise_gen_op;
@@ -88,27 +88,32 @@ always @(posedge RESET, posedge BDIR) begin
 		if (BC) addr <= DI[3:0];
 		else begin 
 			ymreg[addr] <= DI;
-			env_reset <= (addr == 13);
+         if(addr == 13) env_reset <= ~reset_ack; // RESET Envelope Generator
 		end
 	end
 end
 
 // Read from AY
-assign DO =	(addr ==  0) ? ymreg[0]  : 
-				(addr ==  1) ? {4'b0000, ymreg[1][3:0]} : 
-				(addr ==  2) ? ymreg[2]  : 
-				(addr ==  3) ? {4'b0000, ymreg[3][3:0]} : 
-				(addr ==  4) ? ymreg[4]  : 
-				(addr ==  5) ? {4'b0000, ymreg[5][3:0]} : 
-				(addr ==  6) ? {3'b000,  ymreg[6][4:0]} : 
-				(addr ==  7) ? ymreg[7]  : 
-				(addr ==  8) ? {3'b000,  ymreg[8][4:0]} : 
-				(addr ==  9) ? {3'b000,  ymreg[9][4:0]} : 
-				(addr == 10) ? {3'b000,  ymreg[10][4:0]} : 
-				(addr == 11) ? ymreg[11] : 
-				(addr == 12) ? ymreg[12] : 
-				(addr == 13) ? {4'b0000, ymreg[13][3:0]} : 
-				(addr == 14) ? (ymreg[7][6] ? ymreg[14] : 8'd0) : (ymreg[7][7] ? ymreg[15] : 8'd0);
+always_comb begin
+	case(addr) 
+		 0: DO = ymreg[0];
+		 1: DO = {4'b0000, ymreg[1][3:0]};
+		 2: DO = ymreg[2];
+		 3: DO = {4'b0000, ymreg[3][3:0]};
+		 4: DO = ymreg[4];
+		 5: DO = {4'b0000, ymreg[5][3:0]};
+		 6: DO = {3'b000,  ymreg[6][4:0]};
+		 7: DO = ymreg[7];
+		 8: DO = {3'b000,  ymreg[8][4:0]};
+		 9: DO = {3'b000,  ymreg[9][4:0]};
+		10: DO = {3'b000,  ymreg[10][4:0]};
+		11: DO = ymreg[11];
+		12: DO = ymreg[12];
+		13: DO = {4'b0000, ymreg[13][3:0]};
+		14: DO = ymreg[7][6] ? ymreg[14] : 8'd0;
+		15: DO = ymreg[7][7] ? ymreg[15] : 8'd0;
+	endcase;
+end
 
 //  p_divider
 always @(posedge CLK) begin
@@ -226,7 +231,7 @@ always @(posedge CLK) begin
       //
       // 1 1 1 1  /___
       
-	if (env_reset == 1'b1) begin
+	if (env_reset != reset_ack) begin
 		// load initial state
 		if (ymreg[13][2] == 1'b0) begin		// attack
 			env_vol <= 5'b11111;
@@ -236,6 +241,7 @@ always @(posedge CLK) begin
 			env_inc <= 1'b1;		// +1
 		end
 		env_hold <= 1'b0;
+		reset_ack <= env_reset;
 	end else begin
             
 		is_bot = (env_vol == 5'b00000);

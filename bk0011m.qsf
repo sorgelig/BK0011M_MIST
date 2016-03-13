@@ -357,7 +357,8 @@ set_global_assignment -name VERILOG_FILE VM1/vm1_vic.v
 set_global_assignment -name VERILOG_FILE VM1/vm1_tve.v
 set_global_assignment -name VERILOG_FILE VM1/vm1_plm.v
 set_global_assignment -name VERILOG_FILE VM1/vm1_alib.v
-set_global_assignment -name VERILOG_FILE VM1/vm1_wb.v
+set_global_assignment -name VERILOG_FILE VM1/vm1_qbus.v
+set_global_assignment -name VERILOG_FILE VM1/vm1.v
 set_global_assignment -name VERILOG_FILE pll.v
 set_global_assignment -name VERILOG_FILE translate.v
 set_global_assignment -name VERILOG_FILE ps2_intf.v

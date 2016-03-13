@@ -2,13 +2,21 @@
 // Copyright (c) 2014-2015 by 1801BM1@gmail.com
 //______________________________________________________________________________
 //
-// Wishbone compatible version of 1801VM1 processor
-//	has 3 dedicated wishbone interfaces:
-//		- master interface - VM1 core itself
-//		- slave interface - VM1 peripheral (1777xx registers)
-//		- interrupt vector interface - interrupt acknowlegement
+// Optimizations done:
+//		- plr18r is replaced by plr[18]
+//		- plr33r is replaced by plr[33]
+//		- ustb2 is equal to ~au_alsl
+//		- 177702 register data removed
+//		- dout_start uses rply_ack[2] instead of rply_ack[1]
+//		- slave Qbus interface should be syncronized (or slow) with clk
 //
-module vm1_wb 
+//______________________________________________________________________________
+//
+// Version of 1801VM1 processor with Q-bus external interface
+// All external signal transitions should be synchronzed with pin_clk
+// The core does not contain any extra metastability eliminators itself
+//
+module vm1_qbus
 #(parameter 
 //______________________________________________________________________________
 //
@@ -27,255 +35,283 @@ module vm1_wb
 	VM1_CORE_MULG_VERSION = 0
 )
 (
-	//
-	// Processor core clock section:
-	//		- vm_clk_p		- processor core positive clock, also feeds the wishbone buses
-	//		- vm_clk_n		- processor core negative clock, should be vm_clk_p 180 degree phase shifted
-	//		- vm_clk_ena	- slow clock simulation strobe, enables clock at vm_clk_p
-	//		- vm_clk_tve	- VE-timer clock enable strobe, enables clock at vm_clk_p
-	//		- vm_clk_slow	- clock mode selector, enables clock slowdown simulation,
-	//							  the external I/O cycles is launched with rate of vm_clk_ena
-	//
-   input          vm_clk_p,     		// positive clock
-   input          vm_clk_n,     		// negative clock
-	input          vm_clk_ena,    	// slow clock enable
-	input				vm_clk_tve,			// VE-timer clock enable
-	input				vm_clk_sp,			// external pin SP clock
-	input				vm_clk_slow,		// slow clock sim mode
-												//
-   input  [1:0]   vm_pa,        	  	// processor number
-   input          vm_init_in,   	  	// peripheral reset input
-   output         vm_init_out,  	  	// peripheral reset output
+   input          pin_clk_p,     	// processor clock
+   input          pin_clk_n,     	// processor clock 180 degree
+   input          pin_ena,       	// processor clock enable
+   input  [1:0]   pin_pa,        	// processor number
+   input          pin_init_in,   	// peripheral reset input
+   output         pin_init_out,  	// peripheral reset output
                                  	//
-   input          vm_dclo,      		// processor reset
-   input          vm_aclo,      	  	// power fail notificaton
-   input  [3:1]   vm_irq,       	  	// radial interrupt requests
-   input          vm_virq,      	  	// vectored interrupt request
+   input          pin_dclo,      	// processor reset
+   input          pin_aclo,      	// power fail notoficaton
+   input  [3:1]   pin_irq,       	// radial interrupt requests
+   input          pin_virq,      	// vectored interrupt request
                                  	//
-	input				wbm_gnt_i,			// master wishbone granted
-	output [15:0]	wbm_adr_o,		  	// master wishbone address
-	output [15:0]	wbm_dat_o,		  	// master wishbone data output
-   input	 [15:0]	wbm_dat_i,		  	// master wishbone data input
-	output			wbm_cyc_o,			// master wishbone cycle
-	output			wbm_we_o,			// master wishbone direction
-	output [1:0]	wbm_sel_o,		  	// master wishbone byte election
-	output			wbm_stb_o,		  	// master wishbone strobe
-	input				wbm_ack_i,		  	// master wishbone acknowledgement
-												//
-	input	 [15:0]	wbi_dat_i,			// interrupt vector input
-	output			wbi_stb_o,		  	// interrupt vector strobe
-	input				wbi_ack_i,		  	// interrupt vector acknowledgement
-											  	//
-	input	 [3:0]	wbs_adr_i,			// slave wishbone address
-   input	 [15:0]	wbs_dat_i,			// slave wishbone data input
-	output [15:0]	wbs_dat_o,		  	// slave wishbone data output
-	input				wbs_cyc_i,		  	// slave wishbone cycle
-	input				wbs_we_i,		  	// slave wishbone direction
-	input				wbs_stb_i,			// slave wishbone strobe
-	output			wbs_ack_o,			// slave wishbone acknowledgement
-											  	//
-   input  [15:0]  vm_reg14,	     	// register 177714 data
-   input  [15:0]  vm_reg16,	     	// register 177716 data
-   output [2:1]   vm_sel       		// register select outputs
+   input  [15:0]  pin_ad_in,     	// data bus input
+   output [15:0]  pin_ad_out,    	// address/data bus output
+   output         pin_ad_ena,    	// address/data bus enable
+                                 	//
+   input          pin_dout_in,   	// data output strobe input
+   output         pin_dout_out,  	// data output strobe output
+   input          pin_din_in,    	// data input strobe input
+   output         pin_din_out,   	// data input strobe output
+   output         pin_wtbt,      	// write/byte status
+   output         pin_ctrl_ena,  	// enable control outputs
+   output         pin_rmw,        	// read-modify-write
+                                 	//
+   input          pin_sync_in,   	// address strobe input
+   output         pin_sync_out,  	// address strobe output
+   output         pin_sync_ena,  	// address strobe enable
+                                 	//
+   input          pin_rply_in,   	// transaction reply input
+   output         pin_rply_out,  	// transaction reply output
+                                 	//
+   input          pin_dmr_in,    	// bus request shared line
+   output         pin_dmr_out,   	//
+                                 	//
+   input          pin_sack_in,   	// bus acknowlegement
+   output         pin_sack_out,  	// bus acknowlegement
+                                 	//
+   input          pin_dmgi,      	// bus granted input
+   output         pin_dmgo,      	// bus granted output
+   output         pin_iako,      	// interrupt vector input
+   input          pin_sp,        	// peripheral timer input
+   output [2:1]   pin_sel,       	// register select outputs
+   output         pin_bsy        	// bus busy flag
 );
 
 //______________________________________________________________________________
 //
-wire  [33:0]   plx, plx_a, plx_g;	// main microcode matrix output
+wire	[15:0]	wb_pio_dat_i;			//
+wire	[15:0]	wb_cpu_dat_i;			//
+												//
+wire  [33:0]   plx, plx_a, plx_g;  	// main microcode matrix output
 reg   [33:0]   plr;              	// main matrix result register (last stage)
-reg   [33:0]   plm;                	// main matrix result register (first stage)
-reg   [14:0]   mj;                 	// microcode stage and condition register
-reg   [15:0]   ir;                 	// instruction register (last stage)
+reg   [33:0]   plm;              	// main matrix result register (first stage)
+reg   [14:0]   mj;               	// microcode stage and condition register
+reg   [15:0]   ir;               	// instruction register (last stage)
 reg   [15:0]   ira;              	// instruction register (first stage)
                                  	//
 wire  [10:0]   pli, pli_a, pli_g;  	// interrupt priority encode matrix output
-reg   [19:0]   rq;                 	// interrupt request register
-reg            aclo;               	// ACLO falling edge detectors
+reg   [19:0]   rq;               	// interrupt request register
+reg            aclo;             	// ACLO falling edge detectors
 reg            acok;             	// ACLO raising edge detectors
 reg            irq2;             	// IRQ2 falling edge detectors
-reg            irq3;               	// IRQ3 falling edge detectors
-reg            uop;                	// undefined operation latch
-reg            qbto;               	// I/O bus timeout & OAT latch
+reg            irq3;             	// IRQ3 falling edge detectors
+reg            uop;              	// undefined operation latch
+reg            qbto;             	// I/O bus timeout & OAT latch
 reg            ivto;             	// IAKO bus timeout latch
-reg            start_irq;        	// raised by 1777x2 register write (disconnected)
-wire				tve_irq;				  	// VE-timer interrupt request (vm1a_pli ignores)
-wire				tve_ack;				  	// VE-timer interrupt acknowledgement
-											  	//
+reg            start_irq;        	// raised by 1777x2 register write
+wire				tve_irq;					// VE-timer interrupt request (vm1a_pli ignores)
+wire				tve_ack;					// VE-timer interrupt acknowledgement
+												//
 wire				exc_uop;					// Undefined opcode found
 wire				exc_oat;					// Odd address trap detector
-wire           exc_err2;  		     	//
-wire           exc_err3;      	  	//
-wire           exc_err7;      	  	//
+wire           exc_err2;  		   	//
+wire           exc_err3;      		//
+wire           exc_err7;      		//
 reg   [3:0]    exc_dbl;          	// double error detector
 												//
-reg   [5:0]    bus_timer;       	  	// bus timeout counter
-reg            bus_tovf;        	  	// bus timer overflow latch
-											  	//
+reg   [5:0]    qbus_timer;       	// qbus timeout counter
+wire           qbus_tena;        	//
+reg            qbus_tovf;        	// Qbus timer overflow latch
+												//
 												//
 wire           uop_ack;          	// undefined instruction
-wire           aclo_ack;           	// ACLO timer acknowlegement
-wire           irq2_ack;           	// IRQ2 timer acknowlegement
-wire           irq3_ack;           	// IRQ3 timer acknowlegement
+wire           aclo_ack;         	// ACLO timer acknowlegement
+wire           irq2_ack;         	// IRQ2 timer acknowlegement
+wire           irq3_ack;         	// IRQ3 timer acknowlegement
 reg   [3:0]    vsel;             	// vector selection register
 reg   [3:0]    plir;             	// pli[10:8:6:4] outputs latch
-                                   	//
-wire           ir_stb1;            	//
-reg            ir_stb2;            	// instruction register strobe
+                                 	//
+wire           ir_stb1;          	//
+reg            ir_stb2;          	// instruction register strobe
 wire          	ir_clr;           	//
 wire           ir_set_fc;        	//
-reg            ir_set;             	//
-reg            ir_stop;            	//
-reg   		   ir_seq;             	//
+reg            ir_set;           	//
+reg            ir_stop;          	//
+reg   		   ir_seq;           	//
 wire  			ir_seq_rc;				//
                                  	//
-wire				pli_req_rc;			  	// interrupt encoder request
-reg				pli_req;			     	// source and latch
-wire				pli_stb;				  	// interrupt matrix strobe
+wire				pli_req_rc;				// interrupt encoder request
+reg				pli_req;			   	// source and latch
+wire				pli_stb;					// interrupt matrix strobe
 wire				pli_nrdy;				// interrupt matrix not ready
 												//
-wire				plm_stb_rc;			  	// plm_register strobe source
-reg            plm_stb;				  	// plm_register strobe latch
-											  	//
+wire				plm_stb_rc;				// plm_register strobe source
+reg            plm_stb;					// plm_register strobe latch
+												//
 wire          	plm1x_fc;				//
 wire				plm2x_fc;     			// main matrix result strobes
-reg           	plm1x, plm2x;       	//
-reg            plm1x_hl;           	//
-reg				plm_ena; 			  	//
+reg           	plm1x, plm2x;     	//
+reg            plm1x_hl;         	//
+reg				plm_ena; 				//
 wire				plm_ena_fc;				//
 												//
-reg   [3:0]    sop_out;            	//
-wire           sop_up;             	//
-wire  [7:0]    plop;               	//
+reg   [3:0]    sop_out;          	//
+wire           sop_up;           	//
+wire  [7:0]    plop;             	//
 wire           uplr_stb;         	//
 reg            mj_stb1, mj_stb2; 	//
-reg            psw_stb, psw_stbc;  	//
-reg            psw_mj;    			  	//
-											  	//
+reg            psw_stb, psw_stbc;	//
+reg            psw_mj;    				//
+												//
 wire  [3:0]    plm23_fc;         	//
 reg				plm23_wait;				//
-reg				plm23_ichk;			  	//
-                                   	//
-wire	[3:1]		tplm_rc;				  	//
+reg				plm23_ichk;				//
+                                 	//
+wire	[3:1]		tplm_rc;					//
 reg   [3:1]    tplm;             	//
 reg   [3:1]    tplmz;            	//
-reg   [8:6]    plrt;               	//
-reg   [8:6]    plrtz;              	//
-											  	//
+reg   [8:6]    plrt;             	//
+reg   [8:6]    plrtz;            	//
+												//
 reg           	reset;            	// global device hardware reset
 reg           	abort;            	// odd address. bus hang, invalid opcode
-reg		      mjres;           	  	// reset microcode state machine
-reg				mjres_h;				  	//
-											  	//
+reg		      mjres;           		// reset microcode state machine
+reg				mjres_h;					//
+												//
 wire				mjres_rc;				//
 wire				reset_rc;				//
-wire				abort_rc;			  	//
-reg				abort_tm;			  	//
-                                   	//
-reg	[15:0]	wbs_d;					// slave wishbone data register
-wire  [15:0]   tve_d;            	// timer module data output
-reg				wbs_r, wbs_w;		  	//
-reg				wbs_a;				  	//
-wire				wbs_a_rc;			  	//
-												//
-reg           	wsel_00, 				// peripheral register selectors
-					wsel_02,   			  	//
-               wsel_04;				  	//
-                                   	//
-reg            iak_flag;         	//
-reg            iak_vreq;         	//
-reg   [2:0]    init_out;           	//
-                                   	//
-wire           bus_done;        	  	//
-reg           	bus_done_h;      		//
-reg				bus_clr;  				//
-reg				bus_own;				  	//
-reg				bus_req;				  	//
-                                   	//
-wire				bus_nrdy;				//
-reg   [1:0]    bus_aseq;        		// address request sequencer
-wire          	din_done; 		     	//
-wire          	dout_done;          	//
-reg            dout_req;           	//
+wire				abort_rc;				//
+reg				abort_tm;				//
                                  	//
-reg           	wb_uplr;	         	// transaction internal request 
-reg	[15:0]	wb_adr;				  	// wishbone address register
-reg	[15:0]	wb_dat;				  	// wishbone input data register
-											  	//
-wire				wb_start;				//
-wire				wb_wclr, wb_wset;		//
-reg				wb_swait;			  	//
-reg	[9:0]		wb_wcnt;				  	//
-reg				wb_cyc;				  	//
-reg				wb_stb;					//
-reg				wb_we;					//
-reg	[1:0]		wb_sel;				  	//
-wire				wb_wdone,			  	//
-					wb_rdone,			  	//
-					wb_idone;				//
-reg				wb_idone_h;				//
-											  	//
-reg   [2:0]    reg_csr;            	// 177700: control register
-reg   [7:0]    reg_err;            	// 177704: error register
-												//
+wire  [15:0]   d;                	// internal data bus
+wire  [15:0]   tve_d;            	// timer module data output
+wire           ad_oe;            	// external AD pins output enable
+wire           sel177x;          	// peripheral block access
+reg            sel_00, sel_02,   	// peripheral block selectors
+               sel_04, sel_06,   	//
+               sel_10, sel_12,   	//
+               sel_14, sel_16,   	//
+               sel_xx;           	//
+wire           sel_in, sel_out;  	//
+reg            rply_s2, rply_s3; 	// disable rply generation if start_irq active
+wire           rply_s1;          	//
+                                 	//
+reg            dmr_req;          	//
+reg            dmr_req_l;        	//
+wire           dmr_req_rc;       	//
+wire           dmr_out;          	//
+wire           iako_out;         	//
+reg            iako_out_lh;      	//
+reg            iak_flag;         	//
+reg   [2:0]    init_out;         	//
+                                 	//
+wire           qbus_done;        	//
+reg   [3:1]    rply_ack;         	//
+wire				rply_ack_fc;			//
+                                 	//
+reg            iako_oe;          	//
+wire				oe_set_fc;				//
+reg			  	oe_set;					// 
+wire				oe_clr_fc;				//
+reg				oe_clr;   				//
+                                 	//
+wire				qbus_nrdy;				//
+reg   [1:0]    qbus_aseq;        	// address request sequencer
+reg           	dout_done;        	//
+wire           dout_start;       	//
+reg            dout_req;         	//
+wire				dout_req_rc;			//
+reg            dout_out;         	//
+reg            dout_out_l;       	//
+wire           dout_ext;         	//
+                                 	//
+wire           din_done; 		   	//
+wire           din_start;        	//
+reg            din_out;          	//
+reg            din_out_l;        	//
+                                 	//
+wire           dmgo_out;         	//
+wire           qbus_yield;       	//
+reg            dmgi_in_l;        	//
+reg            qbus_adr;         	//
+reg            qbus_req;         	//
+reg            qbus_win;         	//
+reg            qbus_win_h;       	//
+wire           qbus_own;	      	//
+reg            qbus_own_fp;      	//
+reg            qbus_own_rp;      	//
+reg            qbus_flag;        	//
+wire				qbus_flag_rc;			//
+reg            sack_out;         	//
+reg            sync_out;         	//
+reg            sync_out_h;       	//
+reg            sync_ena;         	//
+wire           sync_stb;         	//
+wire           sync_fedge;       	//
+reg            qbus_nosr_h;      	//
+wire           qbus_nosr_rc;     	//
+wire           qbus_gnt;         	//
+reg            qbus_gnt_l;       	//
+wire           qbus_free;        	//
+reg            qbus_free_h;      	//
+                                 	//
+reg   [2:0]    reg_csr;          	// 177700: control register
+reg   [7:0]    reg_err;          	// 177704: error register
+                                 	//
 reg   [3:0]    freg;             	//
 reg   [15:0]   psw;              	// processor status word
-wire 	[15:0]   x, xr, xr_ff, xr_rm; // X bus
-wire  [15:0]   y, yr, yr_ff, yr_rm; // Y bus
+wire 	[15:0]   x, xr, xr_ff, xr_rm;	// X bus
+wire  [15:0]   y, yr, yr_ff, yr_rm;	// Y bus
 wire  [15:0]   f;                	// ALU function inverted output
 wire  [15:0]   h;                	// half summ
-wire  [15:0]   c;                  	// carry
-wire  [15:0]   cpred;              	// carry form preceding but
-reg           	cl;                 	// inserted least bit carry
+wire  [15:0]   c;                	// carry
+wire  [15:0]   cpred;            	// carry form preceding but
+reg           	cl;               	// inserted least bit carry
                                  	//
 wire  [1:0]    fmux;             	//
-wire  [3:0]    flag;               	//
-wire           fbit7, fbit15;      	//
-wire  [7:1]    fctl;               	//
+wire  [3:0]    flag;             	//
+wire           fbit7, fbit15;    	//
+wire  [7:1]    fctl;             	//
 wire           fbitc;            	//
                                  	//
-reg           	alu_b, alu_c;       	// ALU function selector
-reg           	alu_d, alu_e;       	// registered for speed
-reg				alu_s, alu_x;       	//
+reg           	alu_b, alu_c;     	// ALU function selector
+reg           	alu_d, alu_e;     	// registered for speed
+reg				alu_s, alu_x;     	//
 												//
 wire				cl_fc;					//
-wire				alu_b_fc;			  	//
-wire				alu_c_fc;			  	//
-wire				alu_d_fc;			  	//
+wire				alu_b_fc;				//
+wire				alu_c_fc;				//
+wire				alu_d_fc;				//
 wire				alu_e_fc;				//
 wire				alu_x_fc;				//
-wire				alu_s_fc;			  	//
-                                   	//
-wire  [15:0]   alu;                	// ALU output to X/Y bus
+wire				alu_s_fc;				//
+                                 	//
+wire  [15:0]   alu;              	// ALU output to X/Y bus
 wire  [15:0]   axy;              	// AND product
 wire  [15:0]   oxy;             		// OR product
-											  	//
-reg            ustb, ustb_h;       	//
-reg            ustb1, ustb1_h;     	//
+												//
+reg            ustb, ustb_h;     	//
+reg            ustb1, ustb1_h;   	//
 reg            ustb1_hl;         	//
 												//
-reg				alu_busy_fp;		  	// ALU busy (not ready phase shifted)
-reg				alu_busy_rp;		  	//
-reg            alu_nrdy; 	        	// ALU not ready
-wire           alu_qrdy;         	// bus data ready
+reg				alu_busy_fp;			// ALU busy (not ready phase shifted)
+reg				alu_busy_rp;			//
+reg            alu_nrdy; 	      	// ALU not ready
+wire           alu_qrdy;         	// Qbus data ready
                                  	//
-reg           	au_alsl, au_alsh;   	// ALU result strobes
-wire           au_qsx, au_qsy;     	// bus temporary register
-wire           au_pswx, au_pswy;   	// PSW read enable
+reg           	au_alsl, au_alsh; 	// ALU result strobes
+wire           au_qsx, au_qsy;   	// qbus temporary register
+wire           au_pswx, au_pswy; 	// PSW read enable
 wire				au_pstbx;				// PSW write strobe
 wire           au_astb;  				//
-wire           au_qstbx;           	//
-reg           	au_qstbd;           	//
-wire           au_xswap;   		  	// ALU X argument strobes
+wire           au_qstbx;         	//
+wire           au_qstbd;         	//
+wire           au_is0, au_is1;   	// ALU X argument strobes
+wire           au_qrdd;          	//
 reg            au_ta0;           	//
                                  	//
-reg				au_astb_xa;			  	// au_astb/au_qstb speed optimizers
-reg				au_qstb_xa;			  	//
-reg				au_astb_xu;			  	//
+reg				au_astb_xa;				// au_astb/au_qstb speed optimizers
+reg				au_qstb_xa;				//
+reg				au_astb_xu;				//
 reg				au_qstb_xu;				//
 												//
-wire  [15:0]   nx;                 	//
-reg   [15:0]   qreg;               	// ALU Q register (Q-bus data output)
-reg   [15:0]   areg;               	// ALU A register (Q-bus address)
+wire  [15:0]   qrd;              	// qbus byte swap data
+wire  [15:0]   nx;               	//
+reg   [15:0]   qreg;             	// ALU Q register (Q-bus data)
+reg   [15:0]   areg;             	// ALU A register (Q-bus address)
 reg   [15:0]   xreg;             	// ALU X parameter register
 reg   [15:0]   yreg;             	// ALU Y parameter register
 
@@ -288,17 +324,39 @@ begin
 	psw[15:0] 	= 16'o000000;
 end	
 // synopsys translate_on
-//
 //______________________________________________________________________________
 //
-assign vm_init_out  	= init_out[0] | reset;
-assign wbm_dat_o		= au_ta0 ? {qreg[7:0], 8'o000} : (plrt[6] ? {8'o000, qreg[7:0]} : qreg);
-assign wbm_adr_o		= wb_adr;
+// External connection assignments
+//
+assign wb_pio_dat_i	= pin_ad_in;
+assign wb_cpu_dat_i	= pin_ad_in;
+
+assign pin_init_out  = init_out[0] | reset;
+assign pin_ad_out    = d;
+assign pin_ad_ena    = ad_oe;
+assign pin_dout_out  = dout_out & dout_out_l;
+assign pin_din_out   = din_out;
+assign pin_wtbt      = (sync_stb & ~plrt[8]) | (dout_ext & plrt[6]);
+assign pin_rmw       = plrt[7] & plrt[8];
+assign pin_sync_out  = sync_out;
+assign pin_sync_ena  = sync_ena | sync_out;
+assign pin_ctrl_ena  = qbus_win | iako_oe;
+assign pin_rply_out  = (sel_in | sel_out) & (pin_rply_in | ~sel_02 | ~rply_s2);
+
+assign pin_iako      = iako_out_lh;
+assign pin_bsy       = sync_out | pin_ctrl_ena;
+assign pin_dmr_out   = dmr_out;
+assign pin_sack_out  = sack_out;
+assign pin_dmgo      = dmgo_out;
+
+assign pin_sel[2]    = sel_14;
+assign pin_sel[1]    = sel_16;
 
 //______________________________________________________________________________
 //
 // Control and glue logic
 //
+// assign ir_clr	 		= ~tplm_rc[3] & ~ir_seq_rc & (tplm[3] | ir_seq);
 assign ir_clr	 			= (~tplm_rc[3] & tplm[3])
 							   | (~ir_seq_rc & ir_seq);
 //
@@ -308,17 +366,17 @@ assign ir_clr	 			= (~tplm_rc[3] & tplm[3])
 assign ir_seq_rc	= ~mjres & ~mjres_rc 
 						& (~ir_seq | tplm[1] | tplm[3])
 						& (plm23_wait | ir_seq);
-always @(posedge vm_clk_p)
+always @(posedge pin_clk_p)
 						ir_seq <= ir_seq_rc;
 
-assign plm_ena_fc = ~sop_out[0] & (mjres | ustb1_h | ~alu_busy_rp) & ~bus_nrdy;
-always @(posedge vm_clk_n)
+assign plm_ena_fc = ~sop_out[0] & (mjres | ustb1_h | ~alu_busy_rp) & ~qbus_nrdy;
+always @(posedge pin_clk_n)
 begin
 	plm_ena <= plm_ena_fc;
 end
 
 assign sop_up = sop_out[3] | (~sop_out[2] & ~sop_out[1]);
-always @(posedge vm_clk_p)
+always @(posedge pin_clk_p)
 begin
    sop_out[2] <= sop_out[1];
 	
@@ -329,16 +387,16 @@ begin
          sop_out[0] <= 1'b1;
 end
 
-always @(posedge vm_clk_n)
+always @(posedge pin_clk_n)
 begin
    sop_out[1] <= sop_out[0];
    sop_out[3] <= ir_stop | pli_nrdy | ir_stb2 | mjres_h | (alu_nrdy & (plop[0] | plop[4]));
 end
 
 assign plm_stb_rc = ~plm_stb & ~sop_up;
-always @(posedge vm_clk_p) plm_stb <= plm_stb_rc;
+always @(posedge pin_clk_p) plm_stb <= plm_stb_rc;
 
-always @(posedge vm_clk_n or posedge mjres)
+always @(posedge pin_clk_n or posedge mjres)
 begin
    if (mjres)
       ustb <= 1'b0;
@@ -352,18 +410,18 @@ begin
    end
 end
 
-always @(posedge vm_clk_p or posedge mjres)
+always @(posedge pin_clk_p or posedge mjres)
 begin
 	if (mjres)
 		ustb_h <= 1'b0;
 	else
 		ustb_h <= ustb;
 end
-always @(posedge vm_clk_n) ustb1    <= ustb_h;
-always @(posedge vm_clk_p) ustb1_h  <= ustb1;
-always @(posedge vm_clk_n) ustb1_hl <= ustb1_h;
+always @(posedge pin_clk_n) ustb1    <= ustb_h;
+always @(posedge pin_clk_p) ustb1_h  <= ustb1;
+always @(posedge pin_clk_n) ustb1_hl <= ustb1_h;
 
-always @(posedge vm_clk_n or posedge mjres)
+always @(posedge pin_clk_n or posedge mjres)
 begin
    if (mjres)
       alu_busy_fp <= 1'b0;
@@ -371,7 +429,7 @@ begin
       alu_busy_fp <= alu_busy_rp;
 end
 
-always @(posedge vm_clk_p or posedge mjres)
+always @(posedge pin_clk_p or posedge mjres)
 begin
    if (mjres)
       alu_busy_rp <= 1'b0;
@@ -383,7 +441,7 @@ begin
 				alu_busy_rp <= 1'b0;
 end
 
-always @(posedge vm_clk_p or posedge mjres)
+always @(posedge pin_clk_p or posedge mjres)
 begin
    if (mjres)
       alu_nrdy <= 1'b0;
@@ -397,8 +455,8 @@ end
 
 assign ir_stb1 = tplm[1] | tplm[3];
 assign ir_set_fc  = plm23_fc[0] | plm23_fc[1] | plm23_fc[3];
-always @(posedge vm_clk_n) ir_set <= ir_set_fc;
-always @(posedge vm_clk_p or posedge mjres)
+always @(posedge pin_clk_n) ir_set <= ir_set_fc;
+always @(posedge pin_clk_p or posedge mjres)
 begin
 	if (mjres)
 		ir_stb2 <= 1'b0;
@@ -412,7 +470,7 @@ begin
 	end
 end
 
-always @(posedge vm_clk_p or posedge mjres)
+always @(posedge pin_clk_p or posedge mjres)
 begin
 	if (mjres)
 		ir_stop <= 1'b0;
@@ -424,7 +482,7 @@ begin
 				ir_stop <= 1'b1;
 end
 
-always @(posedge vm_clk_n or posedge mjres)
+always @(posedge pin_clk_n or posedge mjres)
 begin
    if (mjres)
       tplmz <= 3'b000;
@@ -440,14 +498,14 @@ end
 assign tplm_rc[1] = ~(mjres | mjres_rc | din_done) & ((uplr_stb & tplmz[1]) | tplm[1]);	// instruction early prefetch
 assign tplm_rc[2] = ~(mjres | mjres_rc | din_done) & ((uplr_stb & tplmz[2]) | tplm[2]);	// data retrieving
 assign tplm_rc[3] = ~(mjres | mjres_rc | din_done) & ((uplr_stb & tplmz[3]) | tplm[3]);	// instruction fetch
-always @(posedge vm_clk_p) tplm <= tplm_rc;
+always @(posedge pin_clk_p) tplm <= tplm_rc;
 
-always @(posedge vm_clk_p)
+always @(posedge pin_clk_p)
 begin
 //
-//		plr[6]	bus operation type: byte operation flag
-//		plr[7]	bus operation type: write flag
-//		plr[8]	bus operation type: read flag
+//		plr[6]	QBUS operation type: byte operation flag
+//		plr[7]	QBUS operation type: write flag
+//		plr[8]	QBUS operation type: read flag
 //						00x - nothing
 //						010 - write word
 //						011 - write byte
@@ -457,7 +515,7 @@ begin
 //						111 - read-modify-write byte
 //
    plrtz[6] <= plr[6];
-   plrtz[7] <= plr[7] & plr[8];	// read-modify-write flag
+   plrtz[7] <= plr[7] & plr[8];
    plrtz[8] <= plr[8];
 	
 	//
@@ -476,153 +534,254 @@ end
 
 //______________________________________________________________________________
 //
-// bus logic (the rest of one, needed as glue core to wishbone interface)
+// Qbus logic
 //
-assign bus_done = (din_done & ~plrt[7]) | dout_done | mjres;
-always @(posedge vm_clk_p) bus_done_h <= bus_done;
+assign qbus_done = (din_done & ~plrt[7]) | dout_done | mjres;
+always @(posedge pin_clk_p) iako_out_lh <= iako_out;
+assign iako_out   = din_out & iak_flag;
 //
-// Wishbone takes address immediately and core does not need to wait areg
+// Master processor never asserts DMR_OUT
 //
-assign alu_qrdy = (~dout_req | plr[23] |  (plr[7] | plr[8]))	// wait for write complete
-                & (plr[10] | (~tplm[2] & ~iak_flag));				// wait for data or vector fetch
+assign dmr_out = dmr_req & (pin_pa != 2'b00);
+//
+// Reply acknowlegement latches
+// (converted to flip-flops approach)
+//
+assign rply_ack_fc = (pin_rply_in & pin_bsy);
+always @(posedge pin_clk_p) rply_ack[1] <= rply_ack_fc;
+always @(posedge pin_clk_n) rply_ack[2] <= rply_ack[1];
+always @(posedge pin_clk_p) rply_ack[3] <= rply_ack[2];
 
-always @(posedge vm_clk_p or posedge mjres)
+assign alu_qrdy = (~qbus_adr | plr[23] | (~plr[7] & ~plr[8]))	// wait for areg free
+					 & (~dout_req | plr[23] | plr[7] | plr[8])		// wait for write complete
+                & (plr[10] | (~tplm[2] & ~iak_flag));				// wait for data or vector fetch
+					 
+always @(posedge pin_clk_p)
+begin
+   if (uplr_stb)
+      qbus_adr <= 1'b1;
+   else
+      if (mjres | mjres_rc | sync_fedge)
+         qbus_adr <= 1'b0;
+end
+
+assign dmr_req_rc = ~(~sync_out & qbus_win) & (au_astb | dmr_req);
+always @(posedge pin_clk_p or posedge mjres)
+begin
+	if (mjres)
+		dmr_req <= 1'b0;
+	else
+		dmr_req <= dmr_req_rc;
+end
+always @(posedge pin_clk_n) dmr_req_l <= dmr_req;
+
+assign dout_req_rc = (~plrt[8] & au_qstbx & (dmr_req_rc | qbus_own_rp)) | (~qbus_done & dout_req);
+always @(posedge pin_clk_p or posedge mjres)
 begin
 	if (mjres)
 		dout_req <= 1'b0;
 	else
-		dout_req <= (~plrt[8] & au_qstbx & (bus_own | bus_req)) | (~bus_done & dout_req);
+		dout_req <= dout_req_rc;
 end
 
-always @(posedge vm_clk_p or posedge mjres)
+assign dout_ext   = dout_out | dout_out_l;
+assign dout_start = dout_req_rc & qbus_flag_rc & ~rply_ack[2]; // originally ~rply_ack[1]
+
+always @(posedge pin_clk_p or posedge mjres)
 begin
 	if (mjres)
-		bus_own <= 1'b0;
+		dout_out <= 1'b0;
 	else
-	begin
-		if (uplr_stb)
-			bus_own <= 1'b1;
+		if (dout_done)
+			dout_out <= 1'b0;
 		else
-			if (bus_done)
-				bus_own <= 1'b0;
-	end
+			if (dout_start)
+				dout_out <= 1'b1;
 end
 
-always @(posedge vm_clk_p or posedge mjres)
+always @(posedge pin_clk_n)
+begin
+	dout_done  <= rply_ack[1] & dout_out;
+   dout_out_l <= dout_out;
+end
+
+assign din_start    = oe_set | (plrt[8] & sync_fedge);
+assign din_done     = din_out_l & (rply_ack[3] | rply_ack[2]);
+always @(posedge pin_clk_n) din_out_l <= din_out;
+always @(posedge pin_clk_p or posedge mjres)
+begin
+   if (mjres)
+      din_out <= 1'b0;
+	else
+		if (din_done)
+			din_out <= 1'b0;
+		else
+			if (din_start)
+				din_out <= 1'b1;
+end
+
+assign qbus_tena = dout_out | din_out;
+assign oe_clr_fc = mjres | (~rply_ack_fc & rply_ack[1] & ~qbus_flag);
+assign oe_set_fc = qbus_gnt & iak_flag & ~dmr_req & ~qbus_own;
+always @(posedge pin_clk_n)
+begin
+   if (oe_clr_fc)
+      iako_oe <= 1'b0;
+   else
+      if (oe_set_fc)
+         iako_oe <= 1'b1;
+	oe_clr <= oe_clr_fc;
+	oe_set <= oe_set_fc;
+end
+
+assign sync_stb   = qbus_win & (~sync_out_h | ~qbus_win_h);
+assign sync_fedge = sync_out & ~sync_ena;
+always @(posedge pin_clk_n)
+begin
+   if (oe_clr_fc)
+      qbus_win <= 1'b0;
+   else
+      if (dmr_req & qbus_gnt)
+         qbus_win <= 1'b1;
+end
+always @(posedge pin_clk_p)
+begin
+   qbus_win_h <= qbus_win;
+   sync_out_h <= sync_out;
+end
+always @(posedge pin_clk_n)
+begin
+   sync_out <= qbus_win_h;
+   sync_ena <= sync_out_h;
+end
+
+assign qbus_yield = ~iako_oe & ~qbus_own & (pin_pa[1:0] == 2'b00) & pin_dmr_in;
+assign qbus_free  = ~(pin_dmr_in | pin_sack_in | (pin_pa[1:0] != 2'b00));
+assign qbus_gnt   = (qbus_nosr_h | (sync_out_h & ~qbus_win_h))
+                  & (qbus_free_h | (dmr_out & sack_out));
+assign qbus_nosr_rc = ~pin_rply_in & ~pin_sync_in;
+
+always @(posedge pin_clk_p) qbus_free_h <= qbus_free;
+always @(posedge pin_clk_p) qbus_nosr_h <= qbus_nosr_rc;
+always @(posedge pin_clk_n) qbus_gnt_l <= qbus_gnt;
+
+assign qbus_own = qbus_own_fp | qbus_own_rp;
+always @(posedge pin_clk_p)
+begin
+   if (qbus_done)
+      qbus_own_rp <= 1'b0;
+	else
+      if (dmr_req_l & qbus_gnt_l)
+         qbus_own_rp <= 1'b1;
+end
+always @(posedge pin_clk_n)
+begin
+   if (qbus_own_rp)
+      qbus_own_fp <= 1'b0;
+	else
+      if (dmr_req & qbus_gnt)
+         qbus_own_fp <= 1'b1;
+end
+
+assign qbus_flag_rc = ~qbus_done & (sync_fedge | qbus_flag);
+always @(posedge pin_clk_p) qbus_flag <= qbus_flag_rc;
+
+always @(posedge pin_clk_p or posedge mjres)
 begin
 	if (mjres)
-		bus_req <= 1'b0;
+      sack_out <= 1'b0;
 	else
-	begin
-		if (uplr_stb)
-			bus_req <= 1'b0;
+		if (qbus_done)
+			sack_out <= 1'b0;
 		else
-			if (au_astb)
-				bus_req <= 1'b1;
-	end
+			if (pin_dmgi & (qbus_nosr_rc | (sync_out & ~qbus_win)) & qbus_req)
+				sack_out <= 1'b1;
 end
 
-
-assign din_done  	= wb_rdone;
-assign dout_done 	= wb_wdone;
-always @(posedge vm_clk_n)	bus_clr  <= mjres | bus_done_h;
+always @(posedge pin_clk_n) dmgi_in_l <= pin_dmgi;
+assign dmgo_out = qbus_yield | (~qbus_req & dmgi_in_l);
+always @(posedge pin_clk_p or posedge mjres)
+begin
+	if (mjres)
+      qbus_req <= 1'b0;
+	else
+		if (qbus_done)
+			qbus_req <= 1'b0;
+		else
+			if (dmr_out & ~pin_dmgi)
+				qbus_req <= 1'b1;
+end
 
 //______________________________________________________________________________
 //
 // 1801BM1 can issue preliminary transaction address, so the plm->plr strobe
 // should be delayed till current transaction in progess completed
 //
-assign bus_nrdy = (bus_aseq[1] & ~bus_clr) | (au_astb & bus_aseq[0] & ~bus_clr);
-assign uplr_stb  = (au_astb & ~bus_aseq[0]) 
-					  | (au_astb &  bus_aseq[0] & bus_clr)
-					  | bus_aseq[1] & bus_clr;
+assign qbus_nrdy = (qbus_aseq[1] & ~oe_clr) | (au_astb & qbus_aseq[0] & ~oe_clr);
+assign uplr_stb  = (au_astb & ~qbus_aseq[0]) 
+					  | (au_astb &  qbus_aseq[0] & oe_clr)
+					  | qbus_aseq[1] & oe_clr;
 							
-always @(posedge vm_clk_n or posedge mjres)
+always @(posedge pin_clk_n or posedge mjres)
 begin
 	if (mjres)
-		bus_aseq <= 2'b00;
+		qbus_aseq <= 2'b00;
 	else
 	begin
 		//
 		// Reset the completed request if it is only one
 		//
 		if (au_astb)
-			bus_aseq[0] <= 1'b1;
+			qbus_aseq[0] <= 1'b1;
 		else
-			if (bus_clr & ~bus_aseq[1])
-				bus_aseq[0] <= 1'b0;
+			if (oe_clr & ~qbus_aseq[1])
+				qbus_aseq[0] <= 1'b0;
 		//
 		// The third request is impossible - the state machine
-		// is suspended by bus_nrdy
+		// is suspended by qbus_nrdy
 		//
-		if (bus_clr)
-			bus_aseq[1] <= 1'b0;
+		if (oe_clr)
+			qbus_aseq[1] <= 1'b0;
 		else
-			if (au_astb & bus_aseq[0])
-				bus_aseq[1] <= 1'b1;
+			if (au_astb & qbus_aseq[0])
+				qbus_aseq[1] <= 1'b1;
 	end
 end
-
 //______________________________________________________________________________
 //
-assign	vm_sel[2]	= wbs_stb_i & (wbs_adr_i[3:1] == 3'b110) & wbs_a;	// 177714
-assign	vm_sel[1]	= wbs_stb_i & (wbs_adr_i[3:1] == 3'b111) & wbs_a; 	// 177716
+assign   d        = ((sel_in & sel_00) ? {11'o3777, pin_pa, reg_csr}  : 16'o000000)
+                  | ((sel_in & sel_02) ? 16'o177777                   : 16'o000000)
+                  | ((sel_in & sel_04) ? {8'o377, reg_err}            : 16'o000000)
+                  | ((sel_in & (sel_06 | sel_10 | sel_12)) ? tve_d    : 16'o000000)
+                  | (sync_stb          ? areg                         : 16'o000000)
+                  | (au_qrdd           ? qrd           					 : 16'o000000);
+						
+assign   qrd      = au_ta0 ? {qreg[7:0], 8'o000} : (plrt[6] ? {8'o000, qreg[7:0]} : qreg);
 
-always @(posedge vm_clk_p)
-begin
-	wsel_00	<= wbs_we_i & wbs_stb_i & wbs_cyc_i & (wbs_adr_i[3:1] == 3'b000);
-	wsel_02	<= wbs_we_i & wbs_stb_i & wbs_cyc_i & (wbs_adr_i[3:1] == 3'b001);
-	wsel_04	<= wbs_we_i & wbs_stb_i & wbs_cyc_i & (wbs_adr_i[3:1] == 3'b010);
-end
-
-assign	wbs_dat_o	= wbs_d;
-assign	wbs_ack_o	= wbs_a;
-//
-// Register 177702 does not generate reply if start_irq is active
-//
-assign	wbs_a_rc 	= wbs_cyc_i & wbs_stb_i & ~((wbs_adr_i[3:1] == 3'b001) & start_irq)
-							& ((~wbs_we_i & ~wbs_r) | (wbs_we_i & ~wbs_w));
-
-always @(posedge vm_clk_p)
-begin
-	wbs_a	<= wbs_a_rc;
-	wbs_r <= wbs_cyc_i & ((wbs_stb_i & ~wbs_we_i) | wbs_r);
-	wbs_w <= wbs_cyc_i & ((wbs_stb_i & wbs_we_i)  | wbs_w);
-
-	if (wbs_stb_i & ~wbs_we_i)
-		case(wbs_adr_i[3:1])
-			3'b000:  wbs_d <= {11'o3777, vm_pa, reg_csr};	// 177700
-			3'b001:  wbs_d <= 16'o177777;							// 177702
-         3'b010:	wbs_d <= {8'o377, reg_err};				// 177704
-         3'b011:	wbs_d <= tve_d;								// 177706
-         3'b100:	wbs_d <= tve_d;								// 177710
-         3'b101:	wbs_d <= tve_d;								// 177712
-         3'b110:	wbs_d <= vm_reg14;							// 177714
-         3'b111:	wbs_d <= vm_reg16;							// 177716
-         default: wbs_d <= 16'o000000;
-      endcase
-end			
+assign   sel177x  = (pin_ad_in[15:6] == 10'o1777) & (pin_ad_in[5:4] == pin_pa[1:0]);
+assign   sel_in   = sel_xx & pin_din_in;
+assign   sel_out  = sel_xx & pin_dout_in;
+assign   ad_oe    = sync_stb | dout_ext | ~(sel_16 | sel_14 | ~sel_in);
 
 vm1_timer   timer
 (
-   .tve_clk(vm_clk_p),
-   .tve_ena(vm_clk_tve),
-   .tve_reset(vm_init_out | vm_init_in),
-   .tve_dclo(vm_dclo),
-   .tve_sp(vm_clk_sp),
-   .tve_din(wbs_dat_i),
+   .tve_clk(pin_clk_p),
+   .tve_ena(pin_ena),
+   .tve_reset(pin_init_out | pin_init_in),
+   .tve_dclo(pin_dclo),
+   .tve_sp(pin_sp),
+   .tve_din(wb_pio_dat_i),
    .tve_dout(tve_d),
-   .tve_csr_oe(wbs_adr_i[3:1] == 3'b101),
-   .tve_cnt_oe(wbs_adr_i[3:1] == 3'b100),
-   .tve_lim_oe(wbs_adr_i[3:1] == 3'b011),
-   .tve_csr_wr((wbs_adr_i[3:1] == 3'b101) & wbs_we_i & wbs_a),
-   .tve_lim_wr((wbs_adr_i[3:1] == 3'b011) & wbs_we_i & wbs_a),
+   .tve_csr_oe(sel_12 & sel_in),
+   .tve_cnt_oe(sel_10 & sel_in),
+   .tve_lim_oe(sel_06 & sel_in),
+   .tve_csr_wr(sel_12 & sel_out),
+   .tve_lim_wr(sel_06 & sel_out),
    .tve_irq(tve_irq),
    .tve_ack(tve_ack)
 );
-//______________________________________________________________________________
 //
-// Bus transacion timeout counter
+// Qbus timeout counter
 //
 // original 1801BM1 timer has 1/8 input prescaler which is no reset and
 // provides bus timeout in a range 56..63 processor clocks. This model
@@ -630,23 +789,23 @@ vm1_timer   timer
 //
 // Timeout exception request should be synchronized with raising clk's edge
 //
-always @(posedge vm_clk_p)
+always @(posedge pin_clk_p)
 begin
-	bus_tovf <= &bus_timer[5:2];
+	qbus_tovf <= &qbus_timer[5:2];
 end
 
-always @(posedge vm_clk_n)
+always @(posedge pin_clk_n or negedge qbus_tena)
 begin
-   if (~((wbm_stb_o & wbm_gnt_i) | wbi_stb_o))
-      bus_timer <= 6'o00;
+   if (~qbus_tena)
+      qbus_timer <= 6'o00;
    else
-      if (~bus_tovf)
-         bus_timer <= bus_timer + 6'o01;
+      if (~qbus_tovf)
+         qbus_timer <= qbus_timer + 6'o01;
 end
 //
 // Control register at 177700
 //
-always @(posedge vm_clk_p or posedge reset)
+always @(posedge pin_clk_p or posedge reset)
 begin
    if (reset)
       reg_csr <= 3'b000;
@@ -658,13 +817,13 @@ begin
       if ((plm1x_hl & ~plr[25]) | (ir_set & reg_csr[1]))
          reg_csr[0] <= 1'b1;
       else
-         if (wsel_00)
-            reg_csr[0] <= wbs_dat_i[0];
+         if (sel_out & sel_00)
+            reg_csr[0] <= wb_pio_dat_i[0];
       //
       // Bit 1 of control register (controls set of bit 0)
       //
-      if (wsel_00)
-         reg_csr[1] <= wbs_dat_i[1];
+      if (sel_out & sel_00)
+         reg_csr[1] <= wb_pio_dat_i[1];
       //
       // Bit 2 of control register (wait state)
       //
@@ -674,8 +833,8 @@ begin
          if (plm1x_hl & ~plr[7])
             reg_csr[2] <= 1'b1;
          else
-            if (wsel_00)
-               reg_csr[2] <= wbs_dat_i[2];
+            if (sel_out & sel_00)
+               reg_csr[2] <= wb_pio_dat_i[2];
    end
 end
 
@@ -686,7 +845,7 @@ end
 // Bit 5 is not used (always read as one)
 // Bit 6 is Odd Address Trap (is not implmented)
 //
-always @(posedge vm_clk_p)
+always @(posedge pin_clk_p)
 begin
    if (reset_rc | ir_set)
       reg_err <= 8'b00100000;
@@ -696,70 +855,89 @@ begin
       // Bit 0 - double error
       //
       if (  (exc_dbl[0] & exc_uop)
-          | (exc_dbl[1] & bus_tovf)
+          | (exc_dbl[1] & qbus_tovf)
           | (exc_dbl[2] & exc_oat)
           | (exc_dbl[3] & exc_err7))
          reg_err[0] <= 1'b1;
       else
-         if (wsel_04)
-            reg_err[0] <= wbs_dat_i[0];
+         if (sel_out & sel_04)
+            reg_err[0] <= wb_pio_dat_i[0];
       //
       // Bit 1 - undefined opcode
       //
       if (exc_uop)
          reg_err[1] <= 1'b1;
       else
-         if (wsel_04)
-            reg_err[1] <= wbs_dat_i[1];
+         if (sel_out & sel_04)
+            reg_err[1] <= wb_pio_dat_i[1];
       //
       // Bit 2 & 3 - unknown error, exceptions not implemented
       //
       if (exc_err2)
          reg_err[2] <= 1'b1;
       else
-         if (wsel_04)
-            reg_err[2] <= wbs_dat_i[2];
+         if (sel_out & sel_04)
+            reg_err[2] <= wb_pio_dat_i[2];
 
       if (exc_err3)
          reg_err[3] <= 1'b1;
       else
-         if (wsel_04)
-            reg_err[3] <= wbs_dat_i[3];
+         if (sel_out & sel_04)
+            reg_err[3] <= wb_pio_dat_i[3];
       //
-      // Bit 4 - bus timeout
+      // Bit 4 - qbus timeout
       //
-      if (bus_tovf)
+      if (qbus_tovf)
          reg_err[4] <= 1'b1;
       else
-         if (wsel_04)
-            reg_err[4] <= wbs_dat_i[4];
+         if (sel_out & sel_04)
+            reg_err[4] <= wb_pio_dat_i[4];
       //
       // Bit 6 - odd address trap
       //
       if (exc_oat)
          reg_err[6] <= 1'b1;
       else
-         if (wsel_04)
-            reg_err[6] <= wbs_dat_i[6];
+         if (sel_out & sel_04)
+            reg_err[6] <= wb_pio_dat_i[6];
       //
       // Bit 7 - unknown error, no exception
       //
       if (exc_err7)
          reg_err[7] <= 1'b1;
       else
-         if (wsel_04)
-            reg_err[7] <= wbs_dat_i[7];
+         if (sel_out & sel_04)
+            reg_err[7] <= wb_pio_dat_i[7];
    end
    //
    // Double error detectors
    //
    if (~exc_uop)  	exc_dbl[0] <= reg_err[1];
-   if (~bus_tovf) 	exc_dbl[1] <= reg_err[4];
+   if (~qbus_tovf) 	exc_dbl[1] <= reg_err[4];
    if (~exc_oat)  	exc_dbl[2] <= reg_err[6];
    if (~exc_err7)  	exc_dbl[3] <= reg_err[7];
 end
 
-always @(posedge vm_clk_p)
+always @(posedge pin_clk_p)
+begin
+   if (~pin_sync_in)
+   begin
+      sel_xx <= sel177x;
+      sel_00 <= sel177x & (pin_ad_in[3:1] == 3'b000);
+      sel_02 <= sel177x & (pin_ad_in[3:1] == 3'b001);
+      sel_04 <= sel177x & (pin_ad_in[3:1] == 3'b010);
+      sel_06 <= sel177x & (pin_ad_in[3:1] == 3'b011);
+      sel_10 <= sel177x & (pin_ad_in[3:1] == 3'b100);
+      sel_12 <= sel177x & (pin_ad_in[3:1] == 3'b101);
+      sel_14 <= sel177x & (pin_ad_in[3:1] == 3'b110);
+      sel_16 <= sel177x & (pin_ad_in[3:1] == 3'b111);
+   end
+end
+
+assign rply_s1 = sel_02 & sel_out & rply_s3;
+always @(posedge pin_clk_n) rply_s3 <= ~rply_s2;
+always @(posedge pin_clk_n) rply_s2 <= start_irq;
+always @(posedge pin_clk_p)
 begin
    //
    // Original circuit contains error
@@ -768,7 +946,7 @@ begin
    if (reset | ((vsel[2:0] == 3'b110) & (plr[28:25] == 4'b0010) & ((plr[13] & ~plr[14]) | plr[11])))
       start_irq <= 1'b0;
    else
-      if (wsel_02)
+      if (rply_s1)
          start_irq <= 1'b1;
 end
 
@@ -781,7 +959,7 @@ assign pli = VM1_CORE_MULG_VERSION ? pli_g : pli_a;
 vm1g_pli  pli_matrix_g(.rq(rq), .sp(pli_g));
 vm1a_pli  pli_matrix_a(.rq(rq), .sp(pli_a));
 
-always @(posedge vm_clk_p)
+always @(posedge pin_clk_p)
 begin
    rq[0]  <= psw[10];
    rq[1]  <= plir[0];   // pli4r
@@ -790,19 +968,19 @@ begin
    rq[4]  <= psw[7];
    rq[9]  <= qbto;
    rq[10] <= reg_err[0];
-   rq[11] <= vm_aclo & aclo;
+   rq[11] <= pin_aclo & aclo;
    rq[12] <= reg_csr[2];
-   rq[13] <= ~vm_aclo & acok;
-   rq[14] <= vm_irq[1];
+   rq[13] <= ~pin_aclo & acok;
+   rq[14] <= pin_irq[1];
    rq[15] <= psw[4];
-   rq[16] <= vm_irq[2] & irq2;
+   rq[16] <= pin_irq[2] & irq2;
    rq[17] <= ivto;
-   rq[18] <= vm_irq[3] & irq3;
+   rq[18] <= pin_irq[3] & irq3;
    //
    // Only master CPU processes vectored interrupts
 	// Matrix accepts low level as active (asserted request)
    //
-   rq[8]  <= ~(vm_virq & (vm_pa == 2'b00));
+   rq[8]  <= ~(pin_virq & (pin_pa == 2'b00));
    //
    // Not used matrix inputs
    //
@@ -824,7 +1002,7 @@ assign exc_err2 = plm1x_hl & ~plr[26];
 assign exc_err3 = plm1x_hl & ~plr[28];
 assign exc_err7 = plm1x_hl & ~plr[30];
 
-always @(posedge vm_clk_p or posedge reset)
+always @(posedge pin_clk_p or posedge reset)
 begin
    if (reset)
       plir[0] <= 1'b0;
@@ -833,7 +1011,7 @@ begin
          plir[0] <= pli[4];
 end			
 
-always @(posedge vm_clk_p)
+always @(posedge pin_clk_p)
 begin
    if (pli_stb)
    begin
@@ -853,27 +1031,27 @@ assign tve_ack  = plm1x_hl & ~plr[27] &  plir[3] & ~plir[2] &  plir[1];
 //
 // ACLO edge detectors
 //
-always @(posedge vm_clk_p)
+always @(posedge pin_clk_p)
 begin
    if (reset | aclo_ack)
       aclo <= 1'b0;
 	else
-      if (~vm_aclo)
+      if (~pin_aclo)
          aclo <= 1'b1;
 			
-	if (vm_dclo | aclo_ack)
+	if (pin_dclo | aclo_ack)
       acok <= 1'b0;
 	else
-      if (vm_aclo)
+      if (pin_aclo)
          acok <= 1'b1;
 end
 //
 // IRQ2 and IRQ3 falling edge detectors
 // Also resettable by internal INIT
 //
-always @(posedge vm_clk_p)
+always @(posedge pin_clk_p)
 begin
-   if (vm_init_out | vm_init_in)
+   if (pin_init_out | pin_init_in)
    begin
       irq2 <= 1'b0;
       irq3 <= 1'b0;
@@ -883,20 +1061,20 @@ begin
       if (irq2_ack)
          irq2 <= 1'b0;
       else
-         if (~vm_irq[2])
+         if (~pin_irq[2])
             irq2 <= 1'b1;
 
       if (irq3_ack)
          irq3 <= 1'b0;
       else
-         if (~vm_irq[3])
+         if (~pin_irq[3])
             irq3 <= 1'b1;
    end
 end
 //
 // Error exception latches
 //
-always @(posedge vm_clk_p)
+always @(posedge pin_clk_p)
 begin
    if (reset | uop_ack)
    begin
@@ -907,8 +1085,8 @@ begin
    else
    begin
       if (exc_uop) uop <= 1'b1;
-      if (bus_tovf & iak_flag) ivto <= 1'b1;
-      if (bus_tovf | exc_oat) qbto <= 1'b1;
+      if (qbus_tovf & iako_out) ivto <= 1'b1;
+      if (qbus_tovf | exc_oat) qbto <= 1'b1;
    end
 end
 
@@ -916,7 +1094,7 @@ assign pli_req_rc = plm23_ichk | abort;
 assign pli_nrdy = pli_req;
 assign pli_stb  = pli_req;
 
-always @(posedge vm_clk_p)
+always @(posedge pin_clk_p)
 begin
 	pli_req <= pli_req_rc;
 
@@ -927,28 +1105,16 @@ begin
          vsel <= {plr[18], ~plr[20], ~plr[21], ~plr[22]};
 end
 
-always @(posedge vm_clk_p or posedge mjres)
+always @(posedge pin_clk_p or posedge mjres)
 begin
    if (mjres)
       iak_flag <= 1'b0;
    else
-		if (wb_idone_h)
+		if (din_done)
 			iak_flag <= 1'b0;
 		else
 		   if (plm_ena & (plr[28:25] == 4'b0010) & (plr[11] | (plr[13] & ~plr[14])) & (vsel == 4'b1111))
 				iak_flag <= 1'b1;
-end
-
-always @(posedge vm_clk_p or posedge mjres)
-begin
-   if (mjres)
-      iak_vreq <= 1'b0;
-   else
-		if (wb_idone)
-			iak_vreq <= 1'b0;
-		else
-			if (iak_flag & ~wb_idone_h & ~wbm_cyc_o & (bus_aseq == 2'b00))
-				iak_vreq <= 1'b1;
 end
 
 //______________________________________________________________________________
@@ -956,10 +1122,10 @@ end
 // Reset circuits
 //
 assign mjres_rc = reset_rc | abort_rc;
-assign reset_rc = vm_dclo | (vm_aclo & ~init_out[0] & init_out[2]);
-assign abort_rc = (bus_tovf | exc_oat | exc_uop | abort) & ~abort_tm & ~reset_rc;
+assign reset_rc = pin_dclo | (pin_aclo & ~init_out[0] & init_out[2]);
+assign abort_rc = (qbus_tovf | exc_oat | exc_uop | abort) & ~abort_tm & ~reset_rc;
 
-always @(posedge vm_clk_p)
+always @(posedge pin_clk_p)
 begin
 	reset	  	<= reset_rc;
 	mjres 	<= mjres_rc;
@@ -968,7 +1134,7 @@ begin
 	abort_tm <= abort & ~reset_rc;
 end
 
-always @(posedge vm_clk_p)
+always @(posedge pin_clk_p)
 begin
    if (reset_rc)
       init_out[0] <= 1'b0;
@@ -1003,7 +1169,7 @@ assign plm23_fc[0] = plm_ena_fc & (plm[3:1] == 3'b001);	// 	no			yes		 no			RTT 
 assign plm23_fc[1] = plm_ena_fc & (plm[3:1] == 3'b011);	// 	yes		yes		 yes			usual IR fetch
 assign plm23_fc[2] = plm_ena_fc & (plm[3:1] == 3'b101);	// 	yes		no			 no			WAIT opcode, check irq only
 assign plm23_fc[3] = plm_ena_fc & (plm[3:1] == 3'b111);	// 	yes		yes		 no			~RTT opcode, wait fetch completion
-always @(posedge vm_clk_n)
+always @(posedge pin_clk_n)
 begin
 	plm23_wait 	<= plm23_fc[0] | plm23_fc[3];
 	plm23_ichk	<= plm23_fc[1] | plm23_fc[2] | plm23_fc[3];
@@ -1018,7 +1184,7 @@ assign plop[5] =  plr[22] & ~plr[21] &  plr[4];	// 101
 assign plop[6] =  plr[22] &  plr[21] & ~plr[4];	// 110
 assign plop[7] =  plr[22] &  plr[21] &  plr[4];	// 111
 
-always @(posedge vm_clk_n)
+always @(posedge pin_clk_n)
 begin
 	plm1x		<= plm1x_fc;
 	plm2x		<= plm2x_fc;
@@ -1037,24 +1203,24 @@ end
 //
 // Instruction register
 //
-always @(posedge vm_clk_p)
+always @(posedge pin_clk_p)
 begin
-   if (ir_stb1) ira <= wbm_dat_i;
+   if (ir_stb1) ira <= wb_cpu_dat_i;
    if (ir_stb2)
 		if (ir_stb1)
-			ir <= wbm_dat_i;
+			ir <= wb_cpu_dat_i;
 		else
 			ir <= ira;
 end
 
 //______________________________________________________________________________
 //
-always @(posedge vm_clk_n)
+always @(posedge pin_clk_n)
 begin
    if (plm_ena_fc) plr <= plm;
 end
 
-always @(posedge vm_clk_p)
+always @(posedge pin_clk_p)
 begin
    //
    // Other bits have no reset facility
@@ -1072,7 +1238,7 @@ end
 //
 // Microcode register
 //
-always @(posedge vm_clk_p or posedge abort)
+always @(posedge pin_clk_p or posedge abort)
 begin
    //
    // The least bit is reset by abort
@@ -1089,7 +1255,7 @@ begin
 end				
 
 
-always @(posedge vm_clk_p or posedge mjres)
+always @(posedge pin_clk_p or posedge mjres)
 begin
    //
    // Least bits are produced directly from main matrix
@@ -1109,7 +1275,7 @@ begin
 		end
 end
 				
-always @(posedge vm_clk_p)
+always @(posedge pin_clk_p)
 begin
 	if (ustb1_hl)
 	begin
@@ -1123,7 +1289,7 @@ begin
 	end
 end
 
-always @(posedge vm_clk_p or posedge mjres)
+always @(posedge pin_clk_p or posedge mjres)
 begin
    //
    // Bits 14:12 poll the interrupt controller state
@@ -1142,13 +1308,13 @@ end
 //
 // ALU result flags and PSW
 //
-always @(posedge vm_clk_n)
+always @(posedge pin_clk_n)
 begin
 	if (au_alsl)
 		freg <= flag;
 end
 
-always @(posedge vm_clk_n or posedge reset)
+always @(posedge pin_clk_n or posedge reset)
 begin
 	//
 	// Start microcode correctly sets the PSW
@@ -1159,7 +1325,7 @@ begin
 	// while executing reset sequence
 	//
 	if (reset)
-      psw[15:0] <= {6'o00, vm_pa[1:0], 8'o000};
+      psw[15:0] <= {6'o00, pin_pa[1:0], 8'o000};
 	else
 	begin
 		if (au_alsl & au_pstbx)
@@ -1187,7 +1353,7 @@ begin
 		end
 		if (au_alsh & au_pstbx)
 		begin
-			psw[9:8] <= vm_pa[1:0];
+			psw[9:8] <= pin_pa[1:0];
 			psw[15:10] <= x[15:10];
 		end
 	end
@@ -1203,8 +1369,8 @@ assign yr = VM1_CORE_REG_USES_RAM ? yr_rm : yr_ff;
 // Implement the Register File with library RAM module
 //
 vm1_reg_ram vreg_rm(
-	.clk_p(vm_clk_p),
-	.clk_n(vm_clk_n),
+	.clk_p(pin_clk_p),
+	.clk_n(pin_clk_n),
 	.reset(reset),
 	.plr(plr),
 	.xbus_in(x),
@@ -1214,7 +1380,7 @@ vm1_reg_ram vreg_rm(
 	.wstbh(au_alsh),
 	.ireg(ir),
 	.vsel(vsel),
-	.pa(vm_pa),
+	.pa(pin_pa),
 	.carry(psw[0]));
 	
 //
@@ -1223,8 +1389,8 @@ vm1_reg_ram vreg_rm(
 // in some implementations
 //
 vm1_reg_ff vreg_ff(
-	.clk_p(vm_clk_p),
-	.clk_n(vm_clk_n),
+	.clk_p(pin_clk_p),
+	.clk_n(pin_clk_n),
 	.reset(reset),
 	.plr(plr),
 	.xbus_in(x),
@@ -1234,7 +1400,7 @@ vm1_reg_ff vreg_ff(
 	.wstbh(au_alsh),
 	.ireg(ir),
 	.vsel(vsel),
-	.pa(vm_pa),
+	.pa(pin_pa),
 	.carry(psw[0]));
 
 assign au_pswy = (plr[28:25] == 4'b1000) & ~plr[11] & ~plr[13];
@@ -1242,10 +1408,15 @@ assign au_qsy  = (plr[28:25] == 4'b0000) & ~plr[11] & ~plr[13];
 assign au_pswx = (plr[33:30] == 4'b1000);
 assign au_qsx  = (plr[33:30] == 4'b0000);
 
-always @(posedge vm_clk_n) au_alsl <= alu_busy_rp & ustb_h;
-always @(posedge vm_clk_n) au_alsh <= alu_busy_rp & ustb_h & plr[18];
+always @(posedge pin_clk_n) au_alsl <= alu_busy_rp & ustb_h;
+always @(posedge pin_clk_n) au_alsh <= alu_busy_rp & ustb_h & plr[18];
 
-assign au_xswap =  plr[13] & plr[14] & plr[25] & plr[26] & ~plr[27];
+assign au_is0  = ~(plr[13] & plr[14] & plr[25] & plr[26] & ~plr[27]);
+assign au_is1  =  (plr[13] & plr[14] & plr[25] & plr[26] & ~plr[27]);
+
+assign au_qrdd  = dout_ext;
+assign au_qstbd = iako_out | tplm[2];
+
 assign au_pstbx = (plr[33:30] == 4'b1000) & plr[20];
 //
 // Original strobes:
@@ -1259,7 +1430,7 @@ assign au_pstbx = (plr[33:30] == 4'b1000) & plr[20];
 //
 assign au_astb  = au_astb_xa | (ustb & au_astb_xu);
 assign au_qstbx = au_qstb_xa | (ustb & au_qstb_xu);
-always @(posedge vm_clk_n)
+always @(posedge pin_clk_n)
 begin
 	au_astb_xa	<= alu_busy_rp & ustb_h & ~(~plr[14] & plr[13]) & ~plr[23] & (plr[7] | plr[8]);
 	au_qstb_xa	<= alu_busy_rp & ustb_h & ~(~plr[14] & plr[13]) & ~plr[23] & ~plr[7] & ~plr[8];
@@ -1270,21 +1441,21 @@ end
 // X bus (12 entries)
 //    AU_RSX0  - general purpose regs
 //    AU_RSX1  - general purpose regs
-//    AU_QSX   - bus temporary reg
+//    AU_QSX   - qbus temporary reg
 //    AU_PSWX  - PSW
 //
 //    AU_ALSx  - ALU result strobe     (writeonly)
 //    AU_ASTB  - A address register    (readonly)
 //    AU_ASTB  - A address register    (readonly)
-//    AU_QSTBX - bus temporary reg     (readonly)
-//    AU_QSTBX - bus temporary reg     (readonly)
+//    AU_QSTBX - Qbus temporary reg    (readonly)
+//    AU_QSTBX - Qbus temporary reg    (readonly)
 //    AU_IS0   - ALU X argument        (readonly)
 //    AU_IS1   - ALU X argument        (readonly)
 //
 // Y bus, inverted (9 entries)
 //    AU_RSY0  - general purpose regs
 //    AU_RSY1  - general purpose regs
-//    AU_QSY   - bus temporary reg
+//    AU_QSY   - Qbus temporary reg
 //    AU_PSWY  - PSW
 //
 //    AU_ALSx  - ALU result strobe     (writeonly))
@@ -1301,146 +1472,39 @@ assign y[15:0]	= ~(yr
 					| (au_qsy  ? qreg : 16'o000000)
 					| (au_pswy ? psw  : 16'o000000));
 //
-// ALU bus register
+// ALU qbus register
 //
-always @(posedge vm_clk_n)
+// Note: pin_clk_n has been changed to pin_clk_p to provide
+// valid data before nDOUT falling edge, but it reduced the Fmax
+//
+always @(posedge pin_clk_p)
 begin
    if (au_qstbx)
-      qreg[15:0] <= x[15:0];
-	else
-		if (au_qstbd)
-		begin
-			qreg[7:0] <= ((au_ta0 & ~wb_idone_h) ? wb_dat[15:8] : wb_dat[7:0]);
-			qreg[15:8] <= wb_dat[15:8];
-		end
-		
+      qreg[7:0] <= x[7:0];
+   else
+      if (au_qstbd)
+         qreg[7:0] <= (au_ta0 ? wb_cpu_dat_i[15:8] : wb_cpu_dat_i[7:0]);
+
+   if (au_qstbx)
+      qreg[15:8] <= x[15:8];
+   else
+      if (au_qstbd)
+         qreg[15:8] <= wb_cpu_dat_i[15:8];
+end
+
+always @(posedge pin_clk_n)
+begin
    if (au_astb)
       areg <= x;
 end
-
 //
 // Transaction address low bit latch
 //
-always @(posedge vm_clk_p)
+always @(posedge pin_clk_p)
 begin
-	wb_uplr <= uplr_stb;
-	if (wb_uplr) 
-	begin
-		wb_adr <= areg;
+	if (sync_stb) 
 		au_ta0 <= areg[0] & plrt[6];
-	end
 end
-
-assign wb_start 	= (wb_wclr & wb_uplr)
-						| (wb_wclr & wb_swait);
-assign wb_wdone 	= wb_stb & wbm_ack_i &  wb_we;
-assign wb_rdone 	= wb_stb & wbm_ack_i & ~wb_we;
-assign wb_idone 	= wbi_stb_o & wbi_ack_i;
-					 
-assign wbm_cyc_o 	= wb_cyc;
-assign wbm_we_o  	= wb_we;
-assign wbm_sel_o	= wb_sel;
-assign wbm_stb_o	= wb_stb;
-assign wbi_stb_o  = iak_vreq & ~wbm_cyc_o & (bus_aseq == 2'b00);
-
-assign wb_wset		 = wb_uplr & vm_clk_slow & (wb_wcnt != 10'o0000);
-assign wb_wclr	 	= reset | ~vm_clk_slow | (vm_clk_ena & (wb_wcnt == 10'o0001));
-		
-always @(posedge vm_clk_p)
-begin
-	au_qstbd 	<= wb_idone | (wb_rdone & tplm[2]);
-	wb_idone_h 	<= wb_idone;
-	
-	if (wb_wclr)
-		wb_swait <= 1'b0;
-	else
-		if (wb_wset)
-			wb_swait <= 1'b1;
-
-	if (reset)
-		wb_wcnt <= 10'o0000;
-	else
-		if (wb_swait)
-		begin
-			if (vm_clk_ena)
-				wb_wcnt <= wb_wcnt - 10'o0001;
-		end
-		else
-		begin
-			if (~vm_clk_ena & vm_clk_slow)
-				wb_wcnt <= wb_wcnt + 10'o0001;
-		end
-	
-	if (wb_rdone)
-		wb_dat <= wbm_dat_i;
-	else
-		if (wb_idone)
-			wb_dat <= wbi_dat_i;
-	//
-	//		plr[6]	bus transaction type: byte operation flag
-	//		plr[7]	bus transaction type: write flag
-	//		plr[8]	bus transaction type: read flag
-	//						00x - nothing
-	//						010 - write word
-	//						011 - write byte
-	//						100 - read word
-	//						101 - read byte
-	//						110 - read-modify-write word
-	//						111 - read-modify-write byte
-	//
-	if (mjres)
-	begin
-		//
-		// Master wishbone abort/reset
-		//
-		wb_cyc		<= 1'b0;
-		wb_we			<= 1'b0; 
-		wb_sel		<= 2'b00; 
-		wb_stb		<= 1'b0; 
-	end
-	else
-		if (wb_start)
-		begin
-			//
-			// Start master bus transaction
-			//
-			wb_cyc		<= 1'b1;
-			wb_we			<= ~plrt[8] & ~plrt[7];
-			wb_sel[0]	<= plrt[8] | ~plrt[6] | (wb_uplr ? ~areg[0] : ~au_ta0);
-			wb_sel[1]	<= plrt[8] | ~plrt[6] | (wb_uplr ?  areg[0] :  au_ta0);
-			wb_stb		<= plrt[8] | (plrt[7] & dout_req);
-		end
-		else
-		begin
-			if (wb_wdone | (~plrt[7] & wb_rdone))
-			begin
-				//
-				// Write or single read completion
-				//
-				wb_cyc		<= 1'b0;
-				wb_we			<= 1'b0; 
-				wb_sel		<= 2'b00; 
-				wb_stb		<= 1'b0; 
-			end
-			else
-				if (wb_rdone & plrt[7])
-				begin
-					//
-					// Read cycle of read-modify-write completion
-					//
-					wb_we		 <= 1'b1;
-					wb_sel[0] <= ~plrt[6] | ~au_ta0;
-					wb_sel[1] <= ~plrt[6] |  au_ta0;
-					wb_stb	 <= 1'b0; 
-				end
-				else
-				begin
-					if (wb_we & dout_req)
-						wb_stb 	<= 1'b1;
-				end
-		end
-end
-
 //______________________________________________________________________________
 //
 // ALU function unit
@@ -1449,9 +1513,13 @@ assign nx  = alu_x ? ~xreg : xreg;
 //
 // ALU input parameters (from X and Y buses) registers
 //
-always @(posedge vm_clk_n)
+always @(posedge pin_clk_n)
 begin
-	xreg[15:0] <= au_xswap ? {x[7:0], x[15:8]} : x[15:0];
+   if (au_is0)
+      xreg[15:0] <= x[15:0];
+   else
+      if (au_is1)
+         xreg[15:0] <= {x[7:0], x[15:8]};
    yreg <= y;
 end
 //
@@ -1483,7 +1551,7 @@ assign alu_e_fc   = (~plr[13] & plr[14]) | (~plr[16] & plr[17]);
 assign alu_x_fc   =  plr[16] & ~plr[17] & ~alu_e_fc;
 assign alu_s_fc   =  ~plr[13] | ~plr[14] | (plr[25] & plr[26]);
 
-always @(posedge vm_clk_n)
+always @(posedge pin_clk_n)
 begin
 	cl	   <= cl_fc;
 	alu_b	<= alu_b_fc;
@@ -1575,7 +1643,7 @@ case(vsel)
    4'b0010: vmux = 16'o000010;      // reserved opcode
    4'b0011: vmux = 16'o000014;      // T-bit/BPT trap
    4'b0100: vmux = 16'o000004;      // invalid opcode
-   4'b0101:                         // or bus timeout
+   4'b0101:                         // or qbus timeout
       case (pa[1:0])                // initial start
          2'b00:  vmux = 16'o177716; // register base
          2'b01:  vmux = 16'o177736; // depends on
@@ -1670,6 +1738,7 @@ reg	[3:0]		vc_vreg;
 wire  [15:0]   vc_vcd;        // vector/constant data
 wire  [13:0]   rs0, rs1, rsw; // register select
 reg   [15:0]   gpr[0:13];     // register array
+
 reg	[3:0]		xadr;
 reg	[3:0]		yadr;
 
@@ -1873,10 +1942,9 @@ assign vc_csel = (plr[28:25] != 4'b0010) & ((plr[13] & ~plr[14]) | plr[11]);
 
 assign	wren 		 = (wstbl & (plr[32:30] != 3'b000) & plr[20]) | (wstbl & ~plr[20]);
 assign	xadr[5:0] = {2'b00, wstbl ? (plr[20] ? plr[33:30] : 4'b1100) : plr[33:30]};
-assign	yadr[3:0] = (vc_vsel 								? vsel 			: 4'b0000)
-						 |	(vc_csel 								? plr[28:25] 	: 4'b0000)
-						 |	((plr[13] & plr[14] & ~plr[11]) 	? 4'b1100 		: 4'b0000)
-						 | ((~plr[11] & ~plr[13]) 				? plr[28:25]   : 4'b0000);
+assign	yadr[3:0] =  vc_vsel ? vsel :
+							(vc_csel ? plr[28:25] :
+							((plr[13] & plr[14]) ? 4'b1100 : ((~plr[11] & ~plr[13]) ? plr[28:25] : 4'b0000)));
 assign	yadr[4]   = vc_vsel;
 assign 	yadr[5]	 = vc_csel;
 
@@ -1901,3 +1969,5 @@ assign ybus_out = vc_mux
 												  {ireg[7] ? 7'o177 : 7'o000, ireg[7:0], 1'b0} : 16'o000000)
 					 | ((vc_csel & (plr[28:25] == 4'b1100)) ? {15'o00000, carry}		  : 16'o000000);
 endmodule
+//______________________________________________________________________________
+//

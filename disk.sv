@@ -11,14 +11,16 @@ module disk_wb
 	input         SPI_SS2,
 	input         SPI_DI,
 
-	input			  wb_clk,
-	input	 [15:0] wb_adr,
-	input	 [15:0] wb_dat_i,
-	input			  wb_cyc,
-	input	  		  wb_we,
-	input	  [1:0] wb_sel,
-	input			  wb_stb,
-	output		  wb_ack,
+	input         clk_bus,
+
+	input  [15:0] bus_din,
+	input  [15:0] bus_addr,
+
+	input         bus_sync,
+	input         bus_we,
+	input   [1:0] bus_wtbt,
+	input         bus_stb,
+	output        bus_ack,
 
 	output        dsk_copy,
 	output        dsk_copy_virt,
@@ -31,12 +33,12 @@ module disk_wb
 	output [31:0] sd_lba,
 	output reg    sd_rd,
 	output reg    sd_wr,
-   input         sd_ack,
+	input         sd_ack,
 	output        sd_conf,
 	output        sd_sdhc,
 	input   [7:0] sd_dout,
 	input         sd_dout_strobe,
-	output reg [7:0] sd_din,
+	output reg[7:0] sd_din,
 	input         sd_din_strobe,
 	input         sd_mounted
 );
@@ -132,7 +134,7 @@ data_io data_io
 	.size(ioctl_size),
 	.index(ioctl_index),
 
-	.clk(wb_clk),
+	.clk(clk_bus),
 	.wr(ioctl_we),
 	.a(ioctl_addr),
 	.d(ioctl_data)
@@ -146,47 +148,49 @@ reg         copy_rd;
 wire [15:0] copy_data_i = dsk_copy_data_i;
 
 //Allow write for stop/start disk motor and extended memory mode.
-wire       sel130  = wb_cyc && (wb_adr[15:1] == (16'o177130 >> 1)) && wb_sel[0];
-wire       sel130w = sel130 && wb_we;
-wire       sel130r = sel130 && !wb_we && !(bk0010 && mode130[2]);
+wire       sel130  = bus_sync && (bus_addr[15:1] == (16'o177130 >> 1)) && bus_wtbt[0];
+wire       sel130w = sel130 && bus_we;
+wire       sel130r = sel130 && !bus_we && !(bk0010 && mode130[2]);
 assign     ext_mode = mode130;
 reg [15:0] mode130;
 reg        mode130_strobe = 1'b0;
 
-always @(posedge wb_stb, posedge reset) begin
+always @(posedge clk_bus) begin
+	reg old_stb;
+	old_stb <= bus_stb;
+
 	if(reset) begin
 		mode130_strobe <= 1'b0;
 		mode130 <= bk0010 ? 16'o160 : 16'o140;
-	end else begin
-		if(sel130w) begin
-			mode130[3:2] <= wb_dat_i[3:2];
-			if(mode130_strobe) begin 
-				mode130[6:4]   <= wb_dat_i[6:4];
-				mode130[11:8]  <= {wb_dat_i[0], wb_dat_i[3], wb_dat_i[2], wb_dat_i[10]};
-				mode130_strobe <= 1'b0;
-			end else begin 
-				mode130_strobe <= (wb_dat_i == 16'o6);
-			end
+
+	end else if(!old_stb & bus_stb & sel130w) begin
+		mode130[3:2] <= bus_din[3:2];
+		if(mode130_strobe) begin 
+			mode130[6:4]   <= bus_din[6:4];
+			mode130[11:8]  <= {bus_din[0], bus_din[3], bus_din[2], bus_din[10]};
+			mode130_strobe <= 1'b0;
+		end else begin 
+			mode130_strobe <= (bus_din == 16'o6);
 		end
 	end;
 end
 
 //LBA access. Main access for disk read and write.
-wire sel132 = wb_we && wb_cyc && (wb_adr[15:1] == (16'o177132 >> 1));
+wire sel132 = bus_we && bus_sync && (bus_addr[15:1] == (16'o177132 >> 1));
 
 //CHS access. Currently not supported and always returns error.
 //Paramaters can be recalculated for LBA call, but none of apps 
 //used CHS access with exception of specific floppy utilities.
-wire sel134 = wb_we && wb_cyc && (wb_adr[15:1] == (16'o177134 >> 1));
+wire sel134 = bus_we && bus_sync && (bus_addr[15:1] == (16'o177134 >> 1));
 
-wire stb132 = wb_stb && sel132;
-wire stb134 = wb_stb && sel134;
+wire stb132 = bus_stb && sel132;
+wire stb134 = bus_stb && sel134;
 wire valid  = disk_rom & (sel130w | sel130r | sel132 | sel134);
 
-assign wb_ack = wb_stb & valid & ack[1];
-always @ (posedge wb_clk) begin
-	ack[0] <= wb_stb & valid;
-	ack[1] <= wb_cyc & ack[0];
+assign bus_ack = bus_stb & valid & ack[1];
+always @ (posedge clk_bus) begin
+	ack[0] <= bus_stb & valid;
+	ack[1] <= bus_sync & ack[0];
 end
 
 wire reg_access = disk_rom & (stb132 | stb134);
@@ -216,7 +220,7 @@ reg  mounted    = 1'b0;
 reg  processing = 1'b0;
 reg  [1:0] ack;
 
-always @ (posedge wb_clk) begin
+always @ (posedge clk_bus) begin
 	reg  old_access, old_mounted, old_reset;
 	reg  [5:0] ack;
 
@@ -224,7 +228,7 @@ always @ (posedge wb_clk) begin
 	if(!old_access && reg_access) begin 
 		processing <= 1'b1;
 		state      <= 8'b0;
-		rSP        <= wb_dat_i;
+		rSP        <= bus_din;
 		copy_rd    <= 1'b0;
 		copy_we    <= 1'b0;
 		copy_virt  <= 1'b1;
@@ -371,7 +375,7 @@ always @ (posedge wb_clk) begin
 			22: begin
 					if(disk) begin
 					   //VHD access
-						if((wb_adr != 16'o177132) || !mounted || !hdd_end || !hdd_start) begin
+						if((bus_addr != 16'o177132) || !mounted || !hdd_end || !hdd_start) begin
 							error[7:0] <= 8'd6;
 							rPSW[0]    <= 1'b1;
 							state      <= 100;
@@ -388,7 +392,7 @@ always @ (posedge wb_clk) begin
 									else  state <= 8'd50; // read
 					end else begin
 					   //DSK access
-						if((wb_adr != 16'o177132) || rR1[15] || !ioctl_index || !ioctl_size) begin
+						if((bus_addr != 16'o177132) || rR1[15] || !ioctl_index || !ioctl_size) begin
 							error[7:0] <= 8'd6;
 							rPSW[0]    <= 1'b1;
 							state      <= 100;
