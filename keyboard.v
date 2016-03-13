@@ -20,6 +20,7 @@ module keyboard_wb
 	output        virq_req274,
 	input         virq_ack274,
 
+	input         scan_mode,
 	input         PS2_CLK,
 	input         PS2_DAT,
 	output        key_down,
@@ -145,7 +146,7 @@ always @(posedge clk_bus) begin
 						else if(decoded == 7'o017) state_rus <= 7'h20;
 
 						if(pressed) begin
-							if(!saved_key) begin
+							if(!saved_key | !scan_mode) begin
 								saved_key <= keyb_data;
 								if(!reg660[7] && (ascii != 7'd0)) begin
 									reg662[6:0] <= ascii;

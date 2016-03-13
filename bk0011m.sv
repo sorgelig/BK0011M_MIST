@@ -195,9 +195,12 @@ always @(posedge clk_24mhz) begin
 	end
 end
 
-user_io #(.STRLEN(86)) user_io (
+user_io #(.STRLEN(107)) user_io (
 	.*,
-	.conf_str("BK0011M;;F4,DSK;S3,VHD;O1,Color,On,Off;O5,Model,BK0011M,BK0010;O6,Disk,On,Off;T2,Reset"),
+	.conf_str
+	(
+        "BK0011M;;F4,DSK;S3,VHD;O1,Color,On,Off;O5,Model,BK0011M,BK0010;O6,Disk,On,Off;O7,Keyboard mode,0,1;T2,Reset"
+	),
 
 	// ps2 keyboard emulation
 	.ps2_clk(clk_ps2),				// 12-16khz provided by core
@@ -395,6 +398,7 @@ wire        keyboard_ack;
 
 keyboard_wb keyboard(
 	.*,
+	.scan_mode(status[7]),
 	.bus_dout(keyboard_data),
 	.bus_ack(keyboard_ack)
 );
