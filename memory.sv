@@ -36,6 +36,7 @@ module memory_wb
 	input         clk_ram,
 	input         clk_037,
 	input         bk0010,
+	input         bk0010_stub,
 	input         disk_rom,
 	output  [7:0] start_addr,
 	input         sysreg_sel,
@@ -359,7 +360,7 @@ assign start_addr = (ext_rom && cold_start && mode_start) ? cold_addr  :
                                                             8'b11000000; // Standard BK0011M
 
 wire [7:0] cold_addr = bk0010 ? start_a16m : start_smk512;
-wire       ext_rom   = disk_rom && cold_addr;
+wire       ext_rom   = disk_rom && cold_addr && !bk0010_stub;
 
 reg [7:0] start_a16m   = 8'd0;
 reg [7:0] start_smk512 = 8'd0;
@@ -422,7 +423,7 @@ wire [24:0] map10ds   = (addr[15:13] == 4'b101) ? `RAM_P02 : // two different pa
                         (addr[15:13] == 4'b111) ? `DISKSTD : 25'H0;
 wire [24:0] map10d    = ext_rom ? map10de : map10ds;
 wire [24:0] map10s[8] = '{`RAM_P00, `RAM_P00+25'H2000, `RAM_P05, `RAM_P05+25'H2000, `BIOS10, `BASIC10, `BASIC10+25'H2000, `BASIC10+25'H4000};
-wire [24:0] map10     = ((addr[15] && disk_rom && map10d) ? map10d : map10s[addr[15:13]]) | addr[12:0];
+wire [24:0] map10     = ((addr[15] && disk_rom && map10d && !bk0010_stub) ? map10d : map10s[addr[15:13]]) | addr[12:0];
 
 wire [24:0] vaddr = bk0010 ? map10 : map11;
 wire [24:0] ram_addr = (mem_copy && !mem_copy_virt) ? mem_copy_addr : vaddr;
@@ -431,8 +432,8 @@ wire copy_we = mem_copy_we && (!mem_copy_virt || !ro);
 
 wire [15:0] top_addr = ((ext_rom && !ext_mode[2]) || (disk_rom && !ext_rom)) ? 16'o177000 : 16'o177600;
 
-assign screen_write[0] = ({ram_addr[24:14], 14'd0} == `RAM_P05);
-assign screen_write[1] = ({ram_addr[24:14], 14'd0} == `RAM_P06);
+assign screen_write[0] = (ram_addr[24:14] == (`RAM_P05>>14));
+assign screen_write[1] = (ram_addr[24:14] == (`RAM_P06>>14));
 
 
 ///////////////////////////////////////////
@@ -442,7 +443,8 @@ wire is_rom  = ~is_ram & (bus_addr < top_addr) & (ram_addr < `NOMEM);
 wire valid   =  is_ram | (is_rom & ~bus_we);
 wire ram_stb =  bus_sync & valid & bus_stb;
 
-assign bus_dout = (bus_sync & valid) ? ram_o : 16'd0;
+wire [15:0] stub[4] = '{16'o10737, 16'o177136, 16'o207, 16'o0};
+assign bus_dout = (bus_sync & valid) ? ((bk0010_stub & (bus_addr[15:13] == 3'b101)) ? stub[bus_addr[2:1]] : ram_o) : 16'd0;
 assign bus_ack  = vp037_ack | ext_ack;
 
 wire legacy_ram = (ram_addr < `RAM_EXT);

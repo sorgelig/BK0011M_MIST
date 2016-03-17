@@ -6,6 +6,8 @@ module disk_wb
 	input         disk_rom,
 	input         bk0010,
 	output [15:0] ext_mode,
+	output reg    reset_req,
+	output reg    bk0010_stub,
 
 	input         SPI_SCK,
 	input         SPI_SS2,
@@ -121,8 +123,41 @@ wire        ioctl_download;
 wire        ioctl_we;
 wire [24:0] ioctl_addr;
 wire [15:0] ioctl_data;
-wire        ioctl_index;
-wire [24:0] ioctl_size;
+wire  [4:0] ioctl_index;
+
+reg         fdd_ready = 0;
+reg  [24:0] fdd_size = 0;
+
+reg  [24:0] bin_size = 0;
+
+always @(posedge clk_bus) begin
+	reg old_download;
+	reg in_range;
+	
+	old_download <= ioctl_download;
+	if(!old_download & ioctl_download & bk0010 & (ioctl_index == 1)) reset_req <=1;
+
+	if(old_download & !ioctl_download) begin
+
+		reset_req <= 0;
+
+		case(ioctl_index)
+			1: begin 
+					bin_size  <= ioctl_addr - 25'h100000 + 1'd1;
+					in_range  <= 0;
+					bk0010_stub <= bk0010;
+				end
+
+			2: begin 
+					fdd_ready <= 1;
+					fdd_size  <= ioctl_addr - 25'h120000;
+				end
+		endcase
+	end
+	
+	if(bus_addr[15:13] == 3'b101) in_range <=1;
+	if(in_range & (bus_addr[15:13] < 3'b101) & bk0010_stub) bk0010_stub <=0; 
+end
 
 data_io data_io
 (
@@ -131,7 +166,6 @@ data_io data_io
 	.sdi(SPI_DI),
 
 	.downloading(ioctl_download),
-	.size(ioctl_size),
 	.index(ioctl_index),
 
 	.clk(clk_bus),
@@ -183,17 +217,21 @@ wire sel132 = bus_we && bus_sync && (bus_addr[15:1] == (16'o177132 >> 1));
 //used CHS access with exception of specific floppy utilities.
 wire sel134 = bus_we && bus_sync && (bus_addr[15:1] == (16'o177134 >> 1));
 
+//BIN loader
+wire sel136 = bus_we && bus_sync && bk0010_stub && (bus_addr[15:1] == (16'o177136 >> 1));
+
 wire stb132 = bus_stb && sel132;
 wire stb134 = bus_stb && sel134;
-wire valid  = disk_rom & (sel130w | sel130r | sel132 | sel134);
+wire stb136 = bus_stb && sel136;
+wire valid  = (disk_rom & (sel130w | sel130r | sel132 | sel134)) | sel136;
 
 assign bus_ack = bus_stb & valid & ack[1];
 always @ (posedge clk_bus) begin
-	ack[0] <= bus_stb & valid;
+	ack[0] <= bus_stb;
 	ack[1] <= bus_sync & ack[0];
 end
 
-wire reg_access = disk_rom & (stb132 | stb134);
+wire reg_access = (disk_rom & (stb132 | stb134)) | stb136;
 
 reg  [7:0] state = 8'b0;
 reg [15:0] rSP;
@@ -209,6 +247,7 @@ reg [15:0] total_size;
 reg [15:0] part_size;
 reg [31:0] lba;
 reg [31:0] lbaro;
+reg [24:0] bin_addr;
 
 reg [31:0] hdd_start;
 reg [31:0] hdd_end;
@@ -227,7 +266,7 @@ always @ (posedge clk_bus) begin
 	old_access <= reg_access;
 	if(!old_access && reg_access) begin 
 		processing <= 1'b1;
-		state      <= 8'b0;
+		state      <= stb136 ? 8'd200 : 8'd0;
 		rSP        <= bus_din;
 		copy_rd    <= 1'b0;
 		copy_we    <= 1'b0;
@@ -392,7 +431,7 @@ always @ (posedge clk_bus) begin
 									else  state <= 8'd50; // read
 					end else begin
 					   //DSK access
-						if((bus_addr != 16'o177132) || rR1[15] || !ioctl_index || !ioctl_size) begin
+						if((bus_addr != 16'o177132) || rR1[15] || !fdd_ready || !fdd_size) begin
 							error[7:0] <= 8'd6;
 							rPSW[0]    <= 1'b1;
 							state      <= 100;
@@ -400,12 +439,12 @@ always @ (posedge clk_bus) begin
 							error[7:0] <= 8'd10;
 							rPSW[0]    <= 1'b1;
 							state      <= 100;
-						end else if((lba+((total_size+255) >> 8)) > (ioctl_size >> 9)) begin
+						end else if((lba+((total_size+255) >> 8)) > (fdd_size >> 9)) begin
 							error[7:0] <= 8'd5;
 							rPSW[0]    <= 1'b1;
 							state      <= 100;
 						end else begin 
-							lbaro <= (lbaro << 9) + 32'h100000;
+							lbaro <= (lbaro << 9) + 32'h120000;
 							state <= 30; // read
 						end
 					end
@@ -597,8 +636,99 @@ always @ (posedge clk_bus) begin
 					copy_we     <= 1'b0;
 					copy_rd     <= 1'b0;
 					processing  <= 1'b0;
+				end
+				
+			
+			// BIN copy
+			200: begin
+					copy_addr   <= 25'h100000;
+					copy_virt   <= 1'b0;
+					copy_we     <= 1'b0;
 					state       <= state + 1'd1;
 				end
+			201: begin
+					copy_rd     <= 1'b1;
+					state       <= state + 1'd1;
+				end
+
+			202: begin
+					copy_rd     <= 1'b1;
+					state       <= state + 1'd1;
+				end
+				
+			203: begin
+					copy_rd     <= 1'b0;
+					state       <= state + 1'd1;
+				end
+
+			204: begin
+					copy_data_o <= {copy_data_i[15:1], 1'b0};
+					rR2         <= {copy_data_i[15:1], 1'b0};
+					bin_addr    <= 25'h100004;
+					total_size  <= {bin_size[15:1], 1'b0};
+					copy_virt   <= 1'b1;
+					copy_addr   <= 16'o776;
+					copy_we     <= 1'b0;
+					state       <= state + 1'd1;
+				end
+
+			205: begin
+					copy_we     <= 1'b1;
+					state       <= state + 1'd1;
+				end
+
+			206: begin
+					copy_we     <= 1'b1;
+					state       <= state + 1'd1;
+				end
+
+			207: begin
+					copy_we     <= 1'b0;
+					state       <= state + 1'd1;
+				end
+				
+			208: begin
+					if(total_size == 16'd0) begin
+						processing  <= 1'b0;
+					end else begin
+						copy_addr  <= bin_addr;
+						copy_virt  <= 1'b0;
+						copy_rd    <= 1'b0;
+						copy_we    <= 1'b0;
+						state      <= state + 1'd1;
+					end;
+				end
+			209: begin
+					copy_rd     <= 1'b1;
+					state       <= state + 1'd1;
+				end
+			210: begin
+					copy_rd     <= 1'b1;
+					state       <= state + 1'd1;
+				end
+			211: begin
+					copy_data_o <= copy_data_i;
+					copy_rd     <= 1'b0;
+					copy_addr   <= rR2;
+					copy_virt   <= 1'b1;
+					state       <= state + 1'd1;
+				end
+			212: begin
+					copy_we     <= 1'b1;
+					state       <= state + 1'd1;
+				end
+			213: begin
+					copy_we     <= 1'b1;
+					state       <= state + 1'd1;
+				end
+			214: begin
+					copy_we     <= 1'b0;
+					rR2         <= rR2 + 2'd2;
+					bin_addr    <= bin_addr + 2'd2;
+					total_size  <= total_size - 2'd2;
+					state       <= 208;
+				end
+
 		endcase
 	end
 
