@@ -129,7 +129,8 @@ module bk0011m
 
 wire clk_24mhz, clk_psg, plock;
 
-pll pll(
+pll pll
+(
 	.inclk0(CLOCK_27),
 	.c0(clk_ram),
 	.c1(SDRAM_CLK),
@@ -145,7 +146,6 @@ always @(posedge clk_24mhz) begin
 	clk_246div <= clk_246div + 1'd1;
 	if(clk_246div == (2'd2 + bk0010)) begin
 		clk_bus <= ~clk_bus;
-		clk_cpu <= clk_bus ? 1'b0 : bus_sync | !dsk_copy;
 		clk_246div <= 2'd0;
 	end
 end
@@ -155,7 +155,6 @@ wire   clk_6mhz  = clk_24div[1];
 wire   clk_037   = clk_6mhz;
 wire   clk_pix   = clk_24mhz;
 reg    clk_bus;  //4MHz or 3MHz
-reg    clk_cpu;  //4MHz or 3MHz with waits
 
 //______________________________________________________________________________
 //
@@ -195,11 +194,12 @@ always @(posedge clk_24mhz) begin
 	end
 end
 
-user_io #(.STRLEN(107)) user_io (
+user_io #(.STRLEN(89)) user_io
+(
 	.*,
 	.conf_str
 	(
-        "BK0011M;;F4,DSK;S3,VHD;O1,Color,On,Off;O5,Model,BK0011M,BK0010;O6,Disk,On,Off;O7,Keyboard mode,0,1;T2,Reset"
+        "BK0011M;BIN;F4,DSK;S3,VHD;O1,Color,On,Off;O5,Model,BK0011M,BK0010;O6,Disk,On,Off;T2,Reset"
 	),
 
 	// ps2 keyboard emulation
@@ -228,6 +228,9 @@ wire        cpu_virq;
 wire        cpu_iacko;
 wire [15:0] cpu_dout;
 wire [15:0] cpu_din;
+wire        cpu_din_out;
+wire        cpu_dout_in;
+wire        cpu_dout_out;
 reg         cpu_ack;
 wire  [2:1]	cpu_psel;
 wire        bus_reset;
@@ -236,13 +239,13 @@ wire [15:0]	bus_addr;
 wire        bus_sync;
 wire        bus_we;
 wire  [1:0]	bus_wtbt;
-wire        bus_stb;
+wire        bus_stb = cpu_dout_d | cpu_din_out;
 
 cpu_reset reset
 (
 	.clk(CLOCK_27),
 	.button(buttons[1] || status[0] || status[2] || key_reset),
-	.plock(~plock || !sys_ready),
+	.plock(~plock || !sys_ready || reset_req),
 	.dclo(cpu_dclo),
 	.aclo(cpu_aclo)
 );
@@ -252,17 +255,14 @@ reg sys_ready = 1'b0;
 integer initwait;
 always @(posedge clk_bus) begin
 	if(!sys_ready) begin
-		if(initwait < 5000000) begin 
-			initwait <= initwait + 1;
-		end else begin
-			sys_ready <= 1'b1;
-		end
+		if(initwait < 5000000) initwait <= initwait + 1;
+			else sys_ready <= 1'b1;
 	end
 end
 
 vm1 cpu
 (
-	.pin_clk(clk_cpu),
+	.pin_clk(clk_bus),
 	.pin_init(bus_reset),
 	.pin_dclo(cpu_dclo),
 	.pin_aclo(cpu_aclo),
@@ -274,14 +274,24 @@ vm1 cpu
 	.pin_addr(bus_addr),
 	.pin_dout(cpu_dout),
 	.pin_din(cpu_din),
+	.pin_din_in(cpu_din_out),
+	.pin_din_out(cpu_din_out),
+	.pin_dout_in(cpu_dout_d),
+	.pin_dout_out(cpu_dout_out),
 	.pin_we(bus_we),
-	.pin_stb(bus_stb),
 	.pin_wtbt(bus_wtbt),
 	.pin_sync(bus_sync),
 	.pin_rply(cpu_ack),
-	
+
+	.pin_dmr(dsk_copy),
+	.pin_sack(0),
+
 	.pin_sel(cpu_psel)
 );
+
+reg   [2:0] dout_delay;
+wire cpu_dout_d = dout_delay[{~bk0010,1'b0}] & cpu_dout_out;
+always @(negedge clk_bus) dout_delay <= {dout_delay[1:0], cpu_dout_out};
 
 wire sysreg_sel   = cpu_psel[1];
 wire port_sel     = cpu_psel[2];
@@ -313,6 +323,7 @@ wire  [7:0] start_addr;
 wire [15:0] ext_mode;
 reg         cold_start = 1'b1;
 reg         mode_start = 1'b1;
+wire        bk0010_stub;
 
 memory_wb memory
 (
@@ -393,12 +404,14 @@ always @(posedge sysreg_write) if(!cpu_dout[11] && bus_wtbt[1]) key_stop_block <
 wire        key_down;
 wire        key_stop;
 wire        key_reset;
+wire        key_color;
 wire [15:0]	keyboard_data;
 wire        keyboard_ack;
 
-keyboard_wb keyboard(
+keyboard_wb keyboard
+(
 	.*,
-	.scan_mode(status[7]),
+	.scan_mode(0),
 	.bus_dout(keyboard_data),
 	.bus_ack(keyboard_ack)
 );
@@ -424,7 +437,8 @@ wire [8:0] pointer_dy;
 wire [7:0] mouse_counter;
 reg  [7:0] old_mouse_counter;
 
-ps2_mouse mouse(
+ps2_mouse mouse
+(
 	.*,
 	.clk(clk_bus),
 	.ps2_clk(ps2_mouse_clk),
@@ -471,14 +485,16 @@ wire [7:0] channel_a;
 wire [7:0] channel_b;
 wire [7:0] channel_c;
 
-sigma_delta_dac #(.MSBI(10)) dac_l (
+sigma_delta_dac #(.MSBI(10)) dac_l
+(
 	.CLK(clk_24mhz),
 	.RESET(bus_reset),
 	.DACin({1'b0, channel_a, 1'b0} + {2'b00, channel_b} + {2'b00, spk_out, 7'b0000000}),
 	.DACout(AUDIO_L)
 );
 
-sigma_delta_dac #(.MSBI(10)) dac_r(
+sigma_delta_dac #(.MSBI(10)) dac_r
+(
 	.CLK(clk_24mhz),
 	.RESET(bus_reset),
 	.DACin({1'b0, channel_c, 1'b0} + {2'b00, channel_b} + {2'b00, spk_out, 7'b0000000}),
@@ -508,27 +524,24 @@ wire [15:0]	scrreg_data;
 wire        scrreg_ack;
 wire        irq2;
 
-wire video_stb = bus_we & bus_sync & bus_stb & (screen_write[1] | screen_write[0]);
-
-video video(
+video video
+(
 	.*,
 	.color(~status[1]),
-	.cache_addr({screen_write[1], bus_addr[13:0]}),
-	.cache_data(cpu_dout),
-	.cache_wtbt(bus_wtbt),
-	.cache_we(video_stb),
-	
+	.mode(scandoubler_disable),
+	.color_switch(key_color),
+
 	.bus_dout(scrreg_data),
 	.bus_ack(scrreg_ack)
 );
+
 
 //______________________________________________________________________________
 //
 // Disk I/O
 //
-
 wire        disk_ack;
-
+wire        reset_req;
 wire        dsk_copy;
 wire        dsk_copy_virt;
 wire [24:0] dsk_copy_addr;
