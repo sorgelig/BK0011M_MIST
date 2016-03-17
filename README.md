@@ -6,15 +6,13 @@ This project of [popular USSR home computer](https://en.wikipedia.org/wiki/Elect
 - Fully functional BK0011M and BK0010 with close to real CPU and Video timings (need furter corrections).
 - Raw DSK image support (read-only, Disk A)
 - Multipatitioned VHD image (read-write, Disk C+)
+- BIN file support for BK0010 mode (only single file apps are supported)
 - A16M extension for BK0010 (support for short and long resets)
 - SMK512 extension for BK0011M
 - AY8910 Sound with 1.71MHz clock
 - Joystick
 - Mouse
 
-### Planned features:
-- single file loading from OSD
-- simulate tape loading (maybe)
 
 ### Installation:
 Copy the *.rbf file at the root of the SD card. You can rename the file to core.rbf if you want the MiST to load it automatically at startup.
@@ -35,28 +33,29 @@ Press F12 to access OSD menu.
 
 ##### Keyboard map:
 
-| PC key      |  BK Key   |
-|:-----------:|:---------:|
-| ESC         | KT        |
-| F1          | ПОВТ      |
-| F2          | ВС        |
-| F3          | ГРАФ      |
-| F4          | <--!      |
-| F5          | !-->      |
-| F6          | ИНДСУ     |
-| F7          | БЛОК РЕД  |
-| F8          | ШАГ       |
-| F9          | СБР       |
-| F10         | СТОП      |
-| Ctrl+F11    | RESET     |
-| F12         | OSD Menu  |
-| Insert      | !-->      |
-| delete      | -!->      |
-| shift+enter | УСТ ТАБ   |
-| shift+tab   | СБР ТАБ   |
-| alt+tab     | ШАГ ПО ТАБ|
-| Right Alt   | ЛАТ       |
-| Right Ctrl  | РУС       |
+| PC key      |  BK Key       |
+|:-----------:|:-------------:|
+| ESC         | KT            |
+| F1          | ПОВТ          |
+| F2          | ВС            |
+| F3          | ГРАФ          |
+| F4          | <--!          |
+| F5          | !-->          |
+| F6          | ИНДСУ         |
+| F7          | БЛОК РЕД      |
+| F8          | ШАГ           |
+| F9          | СБР           |
+| F10         | СТОП          |
+| RCtrl+F11   | RESET         |
+| RAlt+F11    | BK0010 COLORS |
+| F12         | OSD Menu      |
+| Insert      | !-->          |
+| Delete      | -!->          |
+| Shift+Enter | УСТ ТАБ       |
+| Shift+Tab   | СБР ТАБ       |
+| Alt+Tab     | ШАГ ПО ТАБ    |
+| Left Alt    | ЛАТ           |
+| Left Ctrl   | РУС           |
 
 ### Additional info:
 Both ROM images contain debugger which can be launched by following commands from Monitor:
