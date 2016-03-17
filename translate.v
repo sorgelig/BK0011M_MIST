@@ -160,8 +160,8 @@ always @* begin
     9'hX0a: ascii = 8'o220; // F8 - SHAG
     9'HX01: ascii = 8'o014; // F9 - SBR
 
-    9'hX14: if (e0) ascii = 8'o016; // RUS (CapsLock)
-    9'hX11: if (e0) ascii = 8'o017; // LAT (RShift)
+    9'hX14: if (~e0) ascii = 8'o016; // Ctrl - RUS
+    9'hX11: if (~e0) ascii = 8'o017; // Alt  - LAT
 
     default: ascii = 7'H00;// 0x00 used for unlisted characters.
     endcase

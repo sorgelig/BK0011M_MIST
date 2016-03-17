@@ -25,7 +25,8 @@ module keyboard_wb
 	input         PS2_DAT,
 	output        key_down,
 	output        key_stop,
-	output        key_reset
+	output        key_reset,
+	output reg    key_color
 );
 
 wire [1:0] ena;
@@ -135,10 +136,12 @@ always @(posedge clk_bus) begin
 					9'H058: if(pressed) state_caps <= state_caps ^ 7'h20;
 					9'H059: state_shift <= pressed;
 					9'H012: state_shift <= pressed;
-					9'H011: state_alt   <= pressed;
-					9'H014: state_ctrl  <= pressed;
+					9'H11F: state_alt   <= pressed;
+					9'H127: state_alt   <= pressed;
+					9'H111: state_alt   <= pressed;
+					9'H114: state_ctrl  <= pressed;
 					8'H009: if(pressed) state_stop <= 8'd40;
-					8'H078: state_reset <= (pressed && state_ctrl);
+					8'H078: begin state_reset <= (pressed && state_ctrl); key_color <= (pressed && state_alt); end
 					9'H007: ; // disable F12 handling
 					default: begin
 
