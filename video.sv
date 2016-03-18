@@ -40,7 +40,7 @@ module video
 reg clk_12;
 always @(posedge clk_pix) clk_12 <= !clk_12;
 
-assign irq2 = irq & ~bk0010 & ~reg662m[14];
+assign irq2 = irq & irq_en;
 reg irq = 1'b0;
 
 dpram ram
@@ -152,26 +152,29 @@ assign {VGA_HS,  VGA_VS,  VGA_R, VGA_G, VGA_B} = mode ?
 
 ///////////////////////////////////////////////////////////////////////////////////////
 
-reg  [15:0] reg664  = 16'o1330;
-reg  [15:0] reg662m = 16'o40000;
-reg   [3:0] pal10   = 0;
-wire  [3:0] pal     = bk0010 ? pal10 : reg662m[11:8];
-wire        screen_bank = ~bk0010 & reg662m[15];
+reg  [15:0] reg664      = 16'o001330;
+reg  [15:0] reg662      = 16'o040000;
+wire  [3:0] pal         = reg662[11:8];
+wire        screen_bank = ~bk0010 &  reg662[15];
+wire        irq_en      = ~bk0010 & ~reg662[14];
+wire        full_screen = reg664[9];
+wire  [7:0] scroll      = reg664[7:0];
 
 assign bus_dout = sel664 ? reg664 : 16'd0;
 assign bus_ack  = bus_stb & (sel664 | sel662);
 
 wire sel662 = bus_sync && (bus_addr[15:1] == (16'o177662 >> 1)) && bus_we && !bk0010;
-wire stb662 = bus_stb && sel662;
-
+wire stb662 = bus_stb  && sel662;
 wire sel664 = bus_sync && (bus_addr[15:1] == (16'o177664 >> 1));
-wire stb664 = bus_stb && sel664 && bus_we;
-
-wire       full_screen = reg664[9];
-wire [7:0] scroll = reg664[7:0];
+wire stb664 = bus_stb  && sel664 && bus_we;
 
 always @(posedge stb664) {reg664[9], reg664[7:0]} <= {bus_din[9], bus_din[7:0]};
-always @(posedge stb662) reg662m <= bus_din;
-always @(posedge color_switch) pal10 <= pal10 +1'd1;
+always @(posedge stb662) reg662[15:14] <= bus_din[15:14];
+
+wire stb662c = stb662 | color_switch;
+always @(posedge stb662c) begin
+	if(sel662) reg662[11:8] <= bus_din[11:8];
+		else reg662[11:8] <= reg662[11:8] + 1'd1;
+end
 
 endmodule
