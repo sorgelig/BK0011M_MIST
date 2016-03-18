@@ -27,8 +27,8 @@ module disk_wb
 	output        dsk_copy,
 	output        dsk_copy_virt,
 	output [24:0] dsk_copy_addr,
-	input  [15:0] dsk_copy_data_i,
-	output [15:0] dsk_copy_data_o,
+	input  [15:0] dsk_copy_din,
+	output [15:0] dsk_copy_dout,
 	output        dsk_copy_we,
 	output        dsk_copy_rd,
 	
@@ -116,7 +116,7 @@ assign dsk_copy        = ioctl_download | processing;
 assign dsk_copy_we     = ioctl_download ? ioctl_we   : copy_we;
 assign dsk_copy_rd     = ioctl_download ? 1'b0       : copy_rd;
 assign dsk_copy_addr   = ioctl_download ? ioctl_addr : copy_addr;
-assign dsk_copy_data_o = ioctl_download ? ioctl_data : copy_data_o;
+assign dsk_copy_dout   = ioctl_download ? ioctl_data : copy_data_o;
 assign dsk_copy_virt   = ioctl_download ? 1'b0       : copy_virt;
 
 wire        ioctl_download;
@@ -129,6 +129,14 @@ reg         fdd_ready = 0;
 reg  [24:0] fdd_size = 0;
 
 reg  [24:0] bin_size = 0;
+
+reg  [15:0] tape_addr;
+reg  [15:0] tape_len;
+
+always @(posedge ioctl_we) begin
+	if(ioctl_addr == 25'h100000) tape_addr <= {ioctl_data[15:1], 1'b0};
+	if(ioctl_addr == 25'h100002) tape_len  <= (ioctl_data+1'd1) & ~16'd1;
+end
 
 always @(posedge clk_bus) begin
 	reg old_download;
@@ -179,7 +187,7 @@ reg  [15:0] copy_data_o;
 reg         copy_virt;
 reg         copy_we;
 reg         copy_rd;
-wire [15:0] copy_data_i = dsk_copy_data_i;
+wire [15:0] copy_data_i = dsk_copy_din;
 
 //Allow write for stop/start disk motor and extended memory mode.
 wire       sel130  = bus_sync && (bus_addr[15:1] == (16'o177130 >> 1)) && bus_wtbt[0];
@@ -218,12 +226,12 @@ wire sel132 = bus_we && bus_sync && (bus_addr[15:1] == (16'o177132 >> 1));
 wire sel134 = bus_we && bus_sync && (bus_addr[15:1] == (16'o177134 >> 1));
 
 //BIN loader
-wire sel136 = bus_we && bus_sync && bk0010_stub && (bus_addr[15:1] == (16'o177136 >> 1));
+wire sel670 = bus_we && bus_sync && bk0010_stub && (bus_addr[15:1] == (16'o177670 >> 1));
 
 wire stb132 = bus_stb && sel132;
 wire stb134 = bus_stb && sel134;
-wire stb136 = bus_stb && sel136;
-wire valid  = (disk_rom & (sel130w | sel130r | sel132 | sel134)) | sel136;
+wire stb670 = bus_stb && sel670;
+wire valid  = (disk_rom & (sel130w | sel130r | sel132 | sel134)) | sel670;
 
 assign bus_ack = bus_stb & valid & ack[1];
 always @ (posedge clk_bus) begin
@@ -231,7 +239,7 @@ always @ (posedge clk_bus) begin
 	ack[1] <= bus_sync & ack[0];
 end
 
-wire reg_access = (disk_rom & (stb132 | stb134)) | stb136;
+wire reg_access = (disk_rom & (stb132 | stb134)) | stb670;
 
 reg  [7:0] state = 8'b0;
 reg [15:0] rSP;
@@ -266,7 +274,7 @@ always @ (posedge clk_bus) begin
 	old_access <= reg_access;
 	if(!old_access && reg_access) begin 
 		processing <= 1'b1;
-		state      <= stb136 ? 8'd200 : 8'd0;
+		state      <= stb670 ? 8'd200 : 8'd0;
 		rSP        <= bus_din;
 		copy_rd    <= 1'b0;
 		copy_we    <= 1'b0;
@@ -637,57 +645,69 @@ always @ (posedge clk_bus) begin
 					copy_rd     <= 1'b0;
 					processing  <= 1'b0;
 				end
-				
-			
+
 			// BIN copy
 			200: begin
-					copy_addr   <= 25'h100000;
-					copy_virt   <= 1'b0;
+					rR2         <= tape_addr;
+					bin_addr    <= 25'h100004;
+					total_size  <= {bin_size[15:1], 1'b0};
+					copy_data_o <= tape_addr;
+					copy_virt   <= 1'b1;
+					copy_addr   <= rSP;
 					copy_we     <= 1'b0;
 					state       <= state + 1'd1;
 				end
 			201: begin
-					copy_rd     <= 1'b1;
+					copy_we     <= 1'b1;
 					state       <= state + 1'd1;
 				end
-
 			202: begin
-					copy_rd     <= 1'b1;
+					copy_we     <= 1'b1;
 					state       <= state + 1'd1;
 				end
-				
 			203: begin
-					copy_rd     <= 1'b0;
-					state       <= state + 1'd1;
-				end
-
-			204: begin
-					copy_data_o <= {copy_data_i[15:1], 1'b0};
-					rR2         <= {copy_data_i[15:1], 1'b0};
-					bin_addr    <= 25'h100004;
-					total_size  <= {bin_size[15:1], 1'b0};
-					copy_virt   <= 1'b1;
-					copy_addr   <= 16'o776;
 					copy_we     <= 1'b0;
 					state       <= state + 1'd1;
 				end
-
+			204: begin
+					copy_data_o <= tape_addr;
+					copy_virt   <= 1'b1;
+					copy_addr   <= 16'o264;  // start address when loaded from TAPE
+					copy_we     <= 1'b0;
+					state       <= state + 1'd1;
+				end
 			205: begin
 					copy_we     <= 1'b1;
 					state       <= state + 1'd1;
 				end
-
 			206: begin
 					copy_we     <= 1'b1;
 					state       <= state + 1'd1;
 				end
-
 			207: begin
 					copy_we     <= 1'b0;
 					state       <= state + 1'd1;
 				end
-				
 			208: begin
+					copy_data_o <= tape_len;
+					copy_virt   <= 1'b1;
+					copy_addr   <= 16'o266;  // length when loaded from TAPE
+					copy_we     <= 1'b0;
+					state       <= state + 1'd1;
+				end
+			209: begin
+					copy_we     <= 1'b1;
+					state       <= state + 1'd1;
+				end
+			210: begin
+					copy_we     <= 1'b1;
+					state       <= state + 1'd1;
+				end
+			211: begin
+					copy_we     <= 1'b0;
+					state       <= state + 1'd1;
+				end
+			212: begin
 					if(total_size == 16'd0) begin
 						processing  <= 1'b0;
 					end else begin
@@ -698,37 +718,36 @@ always @ (posedge clk_bus) begin
 						state      <= state + 1'd1;
 					end;
 				end
-			209: begin
+			213: begin
 					copy_rd     <= 1'b1;
 					state       <= state + 1'd1;
 				end
-			210: begin
+			214: begin
 					copy_rd     <= 1'b1;
 					state       <= state + 1'd1;
 				end
-			211: begin
+			215: begin
 					copy_data_o <= copy_data_i;
 					copy_rd     <= 1'b0;
 					copy_addr   <= rR2;
 					copy_virt   <= 1'b1;
 					state       <= state + 1'd1;
 				end
-			212: begin
+			216: begin
 					copy_we     <= 1'b1;
 					state       <= state + 1'd1;
 				end
-			213: begin
+			217: begin
 					copy_we     <= 1'b1;
 					state       <= state + 1'd1;
 				end
-			214: begin
+			218: begin
 					copy_we     <= 1'b0;
 					rR2         <= rR2 + 2'd2;
 					bin_addr    <= bin_addr + 2'd2;
 					total_size  <= total_size - 2'd2;
-					state       <= 208;
+					state       <= 212;
 				end
-
 		endcase
 	end
 

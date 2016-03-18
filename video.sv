@@ -3,11 +3,9 @@
 module video
 (
 	input         clk_pix, // Video clock (24 MHz)
-	input         clk_ram, // Video ram clock (>50 MHz)
 
 	// Misc. signals
 	input         color,
-	input   [1:0] screen_write,
 	input         bk0010,
 	input         color_switch,
 	input         mode,
@@ -17,12 +15,14 @@ module video
 	input         SPI_SS3,
 	input         SPI_DI,
 
-	// Video outputs
+	// Video signals
 	output  [5:0] VGA_R,
 	output  [5:0] VGA_G,
 	output  [5:0] VGA_B,
 	output        VGA_VS,
 	output        VGA_HS,
+	output [13:0] vram_addr,
+	input  [15:0] vram_data,
 
 	// CPU bus
 	input         clk_bus,
@@ -43,19 +43,7 @@ always @(posedge clk_pix) clk_12 <= !clk_12;
 assign irq2 = irq & irq_en;
 reg irq = 1'b0;
 
-dpram ram
-(
-	.wraddress({screen_write[1], bus_addr[13:1]}),
-	.byteena_a(bus_wtbt),
-	.clock(clk_ram),
-	.data(bus_din),
-	.wren(bus_we & bus_sync & bus_stb & (screen_write[1] | screen_write[0])),
-
-	.rdaddress({screen_bank, vcr, hc[8:4]}),
-	.q(vdata)
-);
-
-wire[15:0] vdata;
+assign vram_addr = {screen_bank, vcr, hc[8:4]};
 
 reg  [9:0] hc;
 reg  [8:0] vc;
@@ -99,7 +87,7 @@ always @(negedge clk_12) begin
 	dotm <= hc[0];
 	if(!hc[0]) begin
 		dots <= {2'b00, dots[15:2]};
-		if(!hc[9] && !(vc[8:6] & {1'b1, {2{~full_screen}}}) && !hc[3:1]) dots <= vdata;
+		if(!hc[9] && !(vc[8:6] & {1'b1, {2{~full_screen}}}) && !hc[3:1]) dots <= vram_data;
 	end
 end
 

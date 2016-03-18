@@ -56,33 +56,45 @@ module memory_wb
 	input         bus_stb,
 	output        bus_ack,
 
-	output  [1:0] screen_write,
+	input  [13:0] vram_addr,
+	output [15:0] vram_data,
 
 	input         mem_copy,
 	input         mem_copy_virt,
 	input  [24:0] mem_copy_addr,
-	input  [15:0] mem_copy_data_i,
-	output [15:0] mem_copy_data_o,
+	input  [15:0] mem_copy_din,
+	output [15:0] mem_copy_dout,
 	input         mem_copy_we,
 	input         mem_copy_rd
+);
+
+dpram vram
+(
+	.clock(clk_ram),
+
+	.wraddress({scr1_we, ram_addr[13:1]}),
+	.byteena_a(ram_wtbt),
+	.data(ram_din),
+	.wren(ram_we & (scr0_we | scr1_we)),
+
+	.rdaddress(vram_addr),
+	.q(vram_data)
 );
 
 sram ram
 (
 	.*,
-	
 	.clk_sdram(clk_ram),	
-
 	.addr(ram_addr[24:1]),
-	.dout(ram_o),
-	.din (mem_copy ? mem_copy_data_i : bus_din),
-	.wtbt(mem_copy ? 2'b11           : bus_wtbt),
-	.we  (mem_copy ? copy_we         : bus_we & ram_stb),
-	.rd  (mem_copy ? mem_copy_rd     : ~bus_we & ram_stb)
+	.dout(ram_dout),
+	.din(ram_din),
+	.wtbt(ram_wtbt),
+	.we(ram_we),
+	.rd(ram_rd)
 );
 
-wire [15:0] ram_o;
-assign mem_copy_data_o = ram_o;
+wire [15:0] ram_dout;
+assign mem_copy_dout = ram_dout;
 
 //
 // Memory map
@@ -368,14 +380,14 @@ reg [4:0] page_avail = 5'b00010;
 always @(posedge mem_copy_we) begin
 	if(!mem_copy_virt && mem_copy) begin
 		case({mem_copy_addr[24:14], 14'd0})
-			`ROM_P10: page_avail[0] <= (page_avail[0] || mem_copy_data_i);
-			`ROM_P11: page_avail[1] <= (page_avail[1] || mem_copy_data_i);
-			`ROM_P12: page_avail[3] <= (page_avail[3] || mem_copy_data_i);
-			`ROM_P13: page_avail[4] <= (page_avail[4] || mem_copy_data_i);
+			`ROM_P10: page_avail[0] <= (page_avail[0] || mem_copy_din);
+			`ROM_P11: page_avail[1] <= (page_avail[1] || mem_copy_din);
+			`ROM_P12: page_avail[3] <= (page_avail[3] || mem_copy_din);
+			`ROM_P13: page_avail[4] <= (page_avail[4] || mem_copy_din);
 		endcase
 		
-		if(mem_copy_addr == (`A16M_ROM   + 25'HFCE)) start_a16m   <= mem_copy_data_i[15:8];
-		if(mem_copy_addr == (`SMK512_ROM + 25'HFCE)) start_smk512 <= mem_copy_data_i[15:8];
+		if(mem_copy_addr == (`A16M_ROM   + 25'HFCE)) start_a16m   <= mem_copy_din[15:8];
+		if(mem_copy_addr == (`SMK512_ROM + 25'HFCE)) start_smk512 <= mem_copy_din[15:8];
 	end
 end
 
@@ -432,9 +444,12 @@ wire copy_we = mem_copy_we && (!mem_copy_virt || !ro);
 
 wire [15:0] top_addr = ((ext_rom && !ext_mode[2]) || (disk_rom && !ext_rom)) ? 16'o177000 : 16'o177600;
 
-assign screen_write[0] = (ram_addr[24:14] == (`RAM_P05>>14));
-assign screen_write[1] = (ram_addr[24:14] == (`RAM_P06>>14));
-
+wire  [1:0] ram_wtbt = mem_copy ? 2'b11        : bus_wtbt;
+wire [15:0] ram_din  = mem_copy ? mem_copy_din : bus_din;
+wire        ram_we   = mem_copy ? copy_we      : bus_we & ram_stb;
+wire        ram_rd   = mem_copy ? mem_copy_rd  : ~bus_we & ram_stb;
+wire        scr0_we  = (ram_addr[24:14] == (`RAM_P05>>14));
+wire        scr1_we  = (ram_addr[24:14] == (`RAM_P06>>14));
 
 ///////////////////////////////////////////
 
@@ -443,8 +458,8 @@ wire is_rom  = ~is_ram & (bus_addr < top_addr) & (ram_addr < `NOMEM);
 wire valid   =  is_ram | (is_rom & ~bus_we);
 wire ram_stb =  bus_sync & valid & bus_stb;
 
-wire [15:0] stub[4] = '{16'o10737, 16'o177136, 16'o207, 16'o0};
-assign bus_dout = (bus_sync & valid) ? ((bk0010_stub & (bus_addr[15:13] == 3'b101)) ? stub[bus_addr[2:1]] : ram_o) : 16'd0;
+wire [15:0] stub[4] = '{16'o10637, 16'o177670, 16'o207, 16'o0};
+assign bus_dout = (bus_sync & valid) ? ((bk0010_stub & (bus_addr[15:13] == 3'b101)) ? stub[bus_addr[2:1]] : ram_dout) : 16'd0;
 assign bus_ack  = vp037_ack | ext_ack;
 
 wire legacy_ram = (ram_addr < `RAM_EXT);

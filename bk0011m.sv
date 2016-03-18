@@ -338,8 +338,8 @@ memory_wb memory
 	.mem_copy(dsk_copy),
 	.mem_copy_virt(dsk_copy_virt),
 	.mem_copy_addr(dsk_copy_addr),
-	.mem_copy_data_i(dsk_copy_data_o),
-	.mem_copy_data_o(dsk_copy_data_i),
+	.mem_copy_din(dsk_copy_dout),
+	.mem_copy_dout(dsk_copy_din),
 	.mem_copy_we(dsk_copy_we),
 	.mem_copy_rd(dsk_copy_rd)
 );
@@ -523,6 +523,8 @@ ym2149 psg
 wire [15:0]	scrreg_data;
 wire        scrreg_ack;
 wire        irq2;
+wire [13:0] vram_addr;
+wire [15:0] vram_data;
 
 video video
 (
@@ -545,8 +547,8 @@ wire        reset_req;
 wire        dsk_copy;
 wire        dsk_copy_virt;
 wire [24:0] dsk_copy_addr;
-wire [15:0] dsk_copy_data_i;
-wire [15:0] dsk_copy_data_o;
+wire [15:0] dsk_copy_din;
+wire [15:0] dsk_copy_dout;
 wire        dsk_copy_we;
 wire        dsk_copy_rd;
 
