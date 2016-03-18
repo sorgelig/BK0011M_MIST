@@ -126,22 +126,21 @@ always @(posedge clk_bus) begin
 		old_ack274 <= virq_ack274;
 		if(!old_ack274 && virq_ack274) req274 <= 1'b0;
 		
+		key_color <= 0;
 		if (keyb_valid) begin
 			if (keyb_data == 8'HE0)
 				e0 <=1'b1;
 			else if (keyb_data == 8'HF0)
 				pressed <= 1'b0;
 			else begin
-				case({e0, keyb_data})
+				casex({e0, keyb_data})
 					9'H058: if(pressed) state_caps <= state_caps ^ 7'h20;
 					9'H059: state_shift <= pressed;
 					9'H012: state_shift <= pressed;
-					9'H11F: state_alt   <= pressed;
-					9'H127: state_alt   <= pressed;
-					9'H111: state_alt   <= pressed;
+					9'HX11: state_alt   <= pressed;
 					9'H114: state_ctrl  <= pressed;
 					8'H009: if(pressed) state_stop <= 8'd40;
-					8'H078: begin state_reset <= (pressed && state_ctrl); key_color <= (pressed && state_alt); end
+					8'H078: {state_reset, key_color} <= {state_ctrl & pressed, ~state_ctrl & pressed};
 					9'H007: ; // disable F12 handling
 					default: begin
 

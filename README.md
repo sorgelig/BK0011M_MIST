@@ -39,23 +39,24 @@ Press F12 to access OSD menu.
 | F1          | ПОВТ          |
 | F2          | ВС            |
 | F3          | ГРАФ          |
-| F4          | <--!          |
-| F5          | !-->          |
+| F5          | -!->          |
 | F6          | ИНДСУ         |
 | F7          | БЛОК РЕД      |
 | F8          | ШАГ           |
 | F9          | СБР           |
 | F10         | СТОП          |
 | RCtrl+F11   | RESET         |
-| RAlt+F11    | BK0010 COLORS |
+| F11         | Change colors |
 | F12         | OSD Menu      |
 | Insert      | !-->          |
-| Delete      | -!->          |
+| Delete      | !<--          |
 | Shift+Enter | УСТ ТАБ       |
 | Shift+Tab   | СБР ТАБ       |
 | Alt+Tab     | ШАГ ПО ТАБ    |
-| Left Alt    | ЛАТ           |
+| Left Win    | ЛАТ           |
 | Left Ctrl   | РУС           |
+| Right Ctrl  | УС (Ctrl)     |
+| Alt         | АР2 (Alt)     |
 
 ### Additional info:
 Both ROM images contain debugger which can be launched by following commands from Monitor:

@@ -136,11 +136,11 @@ always @* begin
 
     9'hX66: ascii = 8'o030; // Backspace - was 'h8 but delete last char is 030
     9'H00d: ascii = 8'o011; // Tab
-    9'H10d: ascii = 8'o020; // clear Tab
-    9'HX76: ascii = 8'o003; // Escape ("esc" key)
-    9'H05a: ascii = 8'o012; // Carriage return ("enter" key)
-    9'H15a: ascii = 8'o015; // Carriage return ("enter" key)
-    9'HX71: ascii = 8'o231; // Delete - Kill EOL
+    9'H10d: ascii = 8'o020; // Clear Tab
+    9'H15a: ascii = 8'o015; // Set Tab
+    9'HX76: ascii = 8'o003; // ESC - KT
+    9'H05a: ascii = 8'o012; // Enter
+    9'HX71: ascii = 8'o026; // Delete - |<=
     9'HX70: ascii = 8'o027; // Insert - |=>
     9'HX75: ascii = 8'o032; // arrow up
     9'HX72: ascii = 8'o033; // arrow down
@@ -153,15 +153,16 @@ always @* begin
     9'HX05: ascii = 8'o201; // F1 - POVT
     9'HX06: ascii = 8'o023; // F2 - BC
     9'HX04: ascii = 8'o225; // F3 - Graphics
-    9'HX0c: ascii = 8'o026; // F4 - del at cursor
-    9'hX03: ascii = 8'o027; // F5 - |=>
+    //9'HX0c: ascii         // F4 -
+    9'hX03: ascii = 8'o231; // F5 - Kill EOL
     9'hX0b: ascii = 8'o202; // F6 - IND SU
     9'hX83: ascii = 8'o204; // F7 - BLK RED
     9'hX0a: ascii = 8'o220; // F8 - SHAG
     9'HX01: ascii = 8'o014; // F9 - SBR
 
-    9'hX14: if (~e0) ascii = 8'o016; // Ctrl - RUS
-    9'hX11: if (~e0) ascii = 8'o017; // Alt  - LAT
+    9'hX14: if (~e0) ascii = 8'o016; // LCtrl - RUS
+    9'HX1F: if (e0)  ascii = 8'o017; // LWin  - LAT
+    9'HX27: if (e0)  ascii = 8'o017; // RWin  - LAT
 
     default: ascii = 7'H00;// 0x00 used for unlisted characters.
     endcase
