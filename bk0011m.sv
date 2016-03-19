@@ -194,12 +194,12 @@ always @(posedge clk_24mhz) begin
 	end
 end
 
-user_io #(.STRLEN(89)) user_io
+user_io #(.STRLEN(73)) user_io
 (
 	.*,
 	.conf_str
 	(
-        "BK0011M;BIN;F4,DSK;S3,VHD;O1,Color,On,Off;O5,Model,BK0011M,BK0010;O6,Disk,On,Off;T2,Reset"
+        "BK0011M;BIN;F4,DSK;S3,VHD;O5,Model,BK0011M,BK0010;O6,Disk,On,Off;T2,Reset"
 	),
 
 	// ps2 keyboard emulation
@@ -405,6 +405,7 @@ wire        key_down;
 wire        key_stop;
 wire        key_reset;
 wire        key_color;
+wire        key_bw;
 wire [15:0]	keyboard_data;
 wire        keyboard_ack;
 
@@ -529,9 +530,9 @@ wire [15:0] vram_data;
 video video
 (
 	.*,
-	.color(~status[1]),
 	.mode(scandoubler_disable),
 	.color_switch(key_color),
+	.bw_switch(key_bw),
 
 	.bus_dout(scrreg_data),
 	.bus_ack(scrreg_ack)

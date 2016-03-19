@@ -5,9 +5,9 @@ module video
 	input         clk_pix, // Video clock (24 MHz)
 
 	// Misc. signals
-	input         color,
 	input         bk0010,
 	input         color_switch,
+	input         bw_switch,
 	input         mode,
 
 	// OSD bus
@@ -148,6 +148,9 @@ wire        irq_en      = ~bk0010 & ~reg662[14];
 wire        full_screen = reg664[9];
 wire  [7:0] scroll      = reg664[7:0];
 
+reg color = 1;
+always @(posedge bw_switch) color <= ~color;
+
 assign bus_dout = sel664 ? reg664 : 16'd0;
 assign bus_ack  = bus_stb & (sel664 | sel662);
 
@@ -162,7 +165,7 @@ always @(posedge stb662) reg662[15:14] <= bus_din[15:14];
 wire stb662c = stb662 | color_switch;
 always @(posedge stb662c) begin
 	if(sel662) reg662[11:8] <= bus_din[11:8];
-		else reg662[11:8] <= reg662[11:8] + 1'd1;
+		else if(color) reg662[11:8] <= reg662[11:8] + 1'd1;
 end
 
 endmodule

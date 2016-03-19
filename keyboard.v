@@ -26,7 +26,8 @@ module keyboard_wb
 	output        key_down,
 	output        key_stop,
 	output        key_reset,
-	output reg    key_color
+	output reg    key_color,
+	output reg    key_bw
 );
 
 wire [1:0] ena;
@@ -127,6 +128,7 @@ always @(posedge clk_bus) begin
 		if(!old_ack274 && virq_ack274) req274 <= 1'b0;
 		
 		key_color <= 0;
+		key_bw    <= 0;
 		if (keyb_valid) begin
 			if (keyb_data == 8'HE0)
 				e0 <=1'b1;
@@ -141,6 +143,7 @@ always @(posedge clk_bus) begin
 					9'H114: state_ctrl  <= pressed;
 					8'H009: if(pressed) state_stop <= 8'd40;
 					8'H078: {state_reset, key_color} <= {state_ctrl & pressed, ~state_ctrl & pressed};
+					9'H00c: key_bw <= pressed;
 					9'H007: ; // disable F12 handling
 					default: begin
 
