@@ -153,7 +153,7 @@ always @(posedge clk_bus) begin
 						if(pressed) begin
 							if(!saved_key | !scan_mode) begin
 								saved_key <= keyb_data;
-								if(!reg660[7] && (ascii != 7'd0)) begin
+								if((!reg660[7] | !scan_mode) & (ascii != 7'd0)) begin
 									reg662[6:0] <= ascii;
 									reg660[7]   <= 1'b1;
 								
