@@ -339,7 +339,7 @@ always @ (posedge clk_bus) begin
 				end
 			6: begin
 					disk      <= copy_data_i[7:0];
-					hdr_addr  <= 7'd2 + copy_data_i[5:0];
+					hdr_addr  <= 7'd2 + copy_data_i[6:0];
 					copy_addr <= rSP;
 					copy_rd   <= 1'b0;
 					state     <= state + 1'd1;
@@ -422,7 +422,7 @@ always @ (posedge clk_bus) begin
 			22: begin
 					if(disk) begin
 					   //VHD access
-						if((bus_addr != 16'o177132) || !mounted || !hdd_end || !hdd_start) begin
+						if((bus_addr != 16'o177132) || !mounted || !hdd_end || !hdd_start || (disk >= 126)) begin
 							error[7:0] <= 8'd6;
 							rPSW[0]    <= 1'b1;
 							state      <= 100;
