@@ -480,17 +480,18 @@ end
 // Audio 
 //
 
-reg spk_out;
-always @(posedge sysreg_write) if((!bus_wtbt[1] || (!cpu_dout[11] && bus_wtbt[1])) && bus_wtbt[0]) spk_out <= cpu_dout[6];
+reg [2:0] spk_out;
+always @(posedge sysreg_write) if((!bus_wtbt[1] || (!cpu_dout[11] && bus_wtbt[1])) && bus_wtbt[0]) spk_out <= {cpu_dout[6],cpu_dout[5],cpu_dout[2] & !bk0010};
 wire [7:0] channel_a;
 wire [7:0] channel_b;
 wire [7:0] channel_c;
+wire [5:0] psg_active;
 
 sigma_delta_dac #(.MSBI(10)) dac_l
 (
 	.CLK(clk_24mhz),
 	.RESET(bus_reset),
-	.DACin({1'b0, channel_a, 1'b0} + {2'b00, channel_b} + {2'b00, spk_out, 7'b0000000}),
+	.DACin(psg_active ? {1'b0, channel_a, 1'b0} + {2'b00, channel_b} + {2'b00, spk_out, 5'b00000} : {spk_out, 7'b00000}),
 	.DACout(AUDIO_L)
 );
 
@@ -498,7 +499,7 @@ sigma_delta_dac #(.MSBI(10)) dac_r
 (
 	.CLK(clk_24mhz),
 	.RESET(bus_reset),
-	.DACin({1'b0, channel_c, 1'b0} + {2'b00, channel_b} + {2'b00, spk_out, 7'b0000000}),
+	.DACin(psg_active ? {1'b0, channel_c, 1'b0} + {2'b00, channel_b} + {2'b00, spk_out, 5'b00000} : {spk_out, 7'b00000}),
 	.DACout(AUDIO_R)
 );
 
@@ -512,6 +513,7 @@ ym2149 psg
 	.CHANNEL_A(channel_a),
 	.CHANNEL_B(channel_b),
 	.CHANNEL_C(channel_c),
+	.ACTIVE(psg_active),
 	.SEL(0),
 	.MODE(0)
 );
