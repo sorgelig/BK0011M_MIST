@@ -17,7 +17,6 @@ module disk_wb
 
 	input  [15:0] bus_din,
 	input  [15:0] bus_addr,
-
 	input         bus_sync,
 	input         bus_we,
 	input   [1:0] bus_wtbt,
@@ -116,7 +115,7 @@ assign dsk_copy        = ioctl_download | processing;
 assign dsk_copy_we     = ioctl_download ? ioctl_we   : copy_we;
 assign dsk_copy_rd     = ioctl_download ? 1'b0       : copy_rd;
 assign dsk_copy_addr   = ioctl_download ? ioctl_addr : copy_addr;
-assign dsk_copy_dout   = ioctl_download ? ioctl_data : copy_data_o;
+assign dsk_copy_dout   = ioctl_download ? ioctl_data : copy_dout;
 assign dsk_copy_virt   = ioctl_download ? 1'b0       : copy_virt;
 
 wire        ioctl_download;
@@ -127,8 +126,6 @@ wire  [4:0] ioctl_index;
 
 reg         fdd_ready = 0;
 reg  [24:0] fdd_size = 0;
-
-reg  [24:0] bin_size = 0;
 
 reg  [15:0] tape_addr;
 reg  [15:0] tape_len;
@@ -151,7 +148,6 @@ always @(posedge clk_bus) begin
 
 		case(ioctl_index)
 			1: begin 
-					bin_size  <= ioctl_addr - 25'h100000 + 1'd1;
 					in_range  <= 0;
 					bk0010_stub <= bk0010;
 				end
@@ -162,7 +158,7 @@ always @(posedge clk_bus) begin
 				end
 		endcase
 	end
-	
+
 	if(bus_addr[15:13] == 3'b101) in_range <=1;
 	if(in_range & (bus_addr[15:13] < 3'b101) & bk0010_stub) bk0010_stub <=0; 
 end
@@ -181,13 +177,6 @@ data_io data_io
 	.a(ioctl_addr),
 	.d(ioctl_data)
 );
-
-reg  [24:0] copy_addr;
-reg  [15:0] copy_data_o;
-reg         copy_virt;
-reg         copy_we;
-reg         copy_rd;
-wire [15:0] copy_data_i = dsk_copy_din;
 
 //Allow write for stop/start disk motor and extended memory mode.
 wire       sel130  = bus_sync && (bus_addr[15:1] == (16'o177130 >> 1)) && bus_wtbt[0];
@@ -217,7 +206,7 @@ always @(posedge clk_bus) begin
 	end;
 end
 
-//LBA access. Main access for disk read and write.
+//LBA access. Main access for Floppy and HDD read/write.
 wire sel132 = bus_we && bus_sync && (bus_addr[15:1] == (16'o177132 >> 1));
 
 //CHS access. Currently not supported and always returns error.
@@ -234,529 +223,457 @@ wire stb670 = bus_stb && sel670;
 wire valid  = (disk_rom & (sel130w | sel130r | sel132 | sel134)) | sel670;
 
 assign bus_ack = bus_stb & valid & ack[1];
+
+reg  [1:0] ack;
 always @ (posedge clk_bus) begin
 	ack[0] <= bus_stb;
 	ack[1] <= bus_sync & ack[0];
 end
 
-wire reg_access = (disk_rom & (stb132 | stb134)) | stb670;
+wire        reg_access = (disk_rom & (stb132 | stb134)) | stb670;
 
-reg  [7:0] state = 8'b0;
-reg [15:0] rSP;
-reg [15:0] rPSW;
-//reg [15:0] rR3;
-reg [15:0] rR2;
-reg [15:0] rR1;
-//reg [15:0] rR0;
-reg [15:0] error;
+reg  [24:0] copy_addr;
+reg  [15:0] copy_dout;
+wire [15:0] copy_din = dsk_copy_din;
+reg         copy_virt;
+reg         copy_we;
+reg         copy_rd;
+reg   [7:0] bk_addr;
+reg  [31:0] lba;
+reg         conf       = 0;
+reg         processing = 0;
 
-reg  [7:0] bk_addr;
-reg [15:0] total_size;
-reg [15:0] part_size;
-reg [31:0] lba;
-reg [31:0] lbaro;
-reg [24:0] bin_addr;
+typedef enum 
+{
+	ST_R, ST_R2, ST_R3, ST_R4,
+	ST_W, ST_W2, ST_W3, ST_W4,
+	
+	ST_CP_R2V, ST_CP_V2R,
+	
+	ST_CP, ST_CP2,
+	
+	ST_PAR, ST_PAR2, ST_PAR3, ST_PAR4, ST_PAR5, ST_PAR6, ST_PAR7, ST_PAR8,
 
-reg [31:0] hdd_start;
-reg [31:0] hdd_end;
-reg  [7:0] disk;
+	ST_HR, ST_HR2, ST_HR3, ST_HR4, ST_HR5,
+	ST_HW, ST_HW2, ST_HW3, ST_HW4, ST_HW5, ST_HW6, ST_HW7, ST_HW8, ST_HW9,
+	
+	ST_FR,
+	
+	ST_BIN, ST_BIN2, ST_BIN3, ST_BIN4, ST_BIN5,
 
-reg  conf       = 1'b0;
-reg  io_busy    = 1'b0;
-reg  mounted    = 1'b0;
-reg  processing = 1'b0;
-reg  [1:0] ack;
+	ST_RES, ST_RES2, ST_RES3,
+	ST_RES_OK
+
+} io_state_t;
 
 always @ (posedge clk_bus) begin
 	reg  old_access, old_mounted, old_reset;
+
+	io_state_t io_state, io_cp_ret, io_rw_ret;
+
 	reg  [5:0] ack;
+	reg        io_busy = 0;
+	reg        mounted = 0;
+	reg  [1:0] cp_virt;
+	reg [24:0] addr_r, addr_w, cp_len;
+	reg [15:0] SP, PSW, vaddr, error, total_size, part_size;
+	reg [31:0] hdd_start, hdd_end;
+	reg  [7:0] disk;
+	reg        write;
 
 	old_access <= reg_access;
 	if(!old_access && reg_access) begin 
-		processing <= 1'b1;
-		state      <= stb670 ? 8'd200 : 8'd0;
-		rSP        <= bus_din;
-		copy_rd    <= 1'b0;
-		copy_we    <= 1'b0;
-		copy_virt  <= 1'b1;
-		bk_wr      <= 1'b0;
-		sd_wr      <= 1'b0;
-		sd_rd      <= 1'b0;
+		processing <= 1;
+		io_state   <= stb670 ? ST_BIN : ST_PAR;
+		SP         <= bus_din;
+		copy_rd    <= 0;
+		copy_we    <= 0;
+		bk_wr      <= 0;
+		sd_wr      <= 0;
+		sd_rd      <= 0;
 	end
 
 	old_reset <= reset;
 	if(!old_reset && reset) begin
-		processing <= 1'b0;
-		io_busy    <= 1'b0;
-		sd_wr      <= 1'b0;
-		sd_rd      <= 1'b0;
-		copy_rd    <= 1'b0;
-		copy_we    <= 1'b0;
+		processing <= 0;
+		io_busy    <= 0;
+		sd_wr      <= 0;
+		sd_rd      <= 0;
+		copy_rd    <= 0;
+		copy_we    <= 0;
 	end
-	
-	ack <= {sd_ack, ack[5:1]};
 
+	ack <= {sd_ack, ack[5:1]};
 	if(ack[0] && !ack[1]) begin
 		if(conf) begin
-			mounted <= ((hdd_sig == "BKHD") && (hdd_ver == 8'd1));
+			mounted <= ((hdd_sig == "BKHD") && (hdd_ver == 1));
 			conf    <= 1'b0;
 		end
-		io_busy <= 1'b0;
+		io_busy <= 0;
 	end
 
 	if(!ack[0] && ack[1]) begin
-		sd_wr <= 1'b0;
-		sd_rd <= 1'b0;
+		sd_wr <= 0;
+		sd_rd <= 0;
 	end
 
 	if(processing) begin
-		case(state)
-			0: begin
-					copy_addr <= rSP+16'd6;
-					state     <= state + 1'd1;
+		case(io_state)
+			ST_R:
+				begin
+					copy_addr <= addr_r;
+					copy_rd   <= 0;
+					io_state  <= io_state.next();
 				end
-			1: begin
-					copy_rd   <= 1'b1;
-					state     <= state + 1'd1;
+			ST_R2,
+			ST_R3:
+				begin
+					copy_rd   <= 1;
+					io_state  <= io_state.next();
 				end
-			2: begin
-					copy_rd   <= 1'b1;
-					state     <= state + 1'd1;
+			ST_R4:
+				begin
+					copy_rd   <= 0;
+					addr_r    <= addr_r + 2'd2;
+					io_state  <= io_rw_ret;
+					io_rw_ret <= io_rw_ret.next();
 				end
-			3: begin
-					//rR3       <= copy_data_i;
-					copy_rd   <= 1'b0;
-					copy_addr <= copy_data_i + 16'o34;
-					state     <= state + 1'd1;
+
+			ST_W:
+				begin
+					copy_addr <= addr_w;
+					copy_we   <= 0;
+					io_state  <= io_state.next();
 				end
-			4: begin
-					copy_rd   <= 1'b1;
-					state     <= state + 1'd1;
+			ST_W2,
+			ST_W3:
+				begin
+					copy_we   <= 1;
+					io_state  <= io_state.next();
 				end
-			5: begin
-					copy_rd   <= 1'b1;
-					state     <= state + 1'd1;
+			ST_W4:
+				begin
+					copy_we   <= 0;
+					addr_w    <= addr_w + 2'd2;
+					io_state  <= io_rw_ret;
+					io_rw_ret <= io_rw_ret.next();
 				end
-			6: begin
-					disk      <= copy_data_i[7:0];
-					hdr_addr  <= 7'd2 + copy_data_i[6:0];
-					copy_addr <= rSP;
-					copy_rd   <= 1'b0;
-					state     <= state + 1'd1;
+
+			ST_CP_R2V:
+				begin
+					cp_virt   <= 2'b01;
+					io_state  <= ST_CP;
 				end
-			7: begin
-					copy_rd   <= 1'b1;
-					state     <= state + 1'd1;
+			ST_CP_V2R:
+				begin
+					cp_virt   <= 2'b10;
+					io_state  <= ST_CP;
 				end
-			8: begin
-					copy_rd   <= 1'b1;
-					state     <= state + 1'd1;
+
+			ST_CP:
+				begin
+					if(!cp_len) io_state <= io_cp_ret;
+					else begin
+						io_state <= ST_R;
+						io_rw_ret<= io_state.next();
+					end
+					cp_len    <= cp_len - 1'd1;
+					copy_virt <= cp_virt[1];
 				end
-			9: begin
-					//rR0       <= copy_data_i;
-					lbaro     <= copy_data_i;
-					lba       <= hdr_out + copy_data_i;
+			ST_CP2:
+				begin
+					copy_virt <= cp_virt[0];
+					copy_dout <= copy_din;
+					io_state  <= ST_W;
+					io_rw_ret <= ST_CP;
+				end
+
+			ST_PAR:
+				begin
+					copy_virt <= 1;
+					addr_r    <= SP+16'd6;
+					io_state  <= ST_R;
+					io_rw_ret <= io_state.next();
+				end
+			ST_PAR2:
+				begin
+					// R3 - address of paramters
+					addr_r    <= copy_din + 16'o34;
+					io_state  <= ST_R;
+				end
+			ST_PAR3:
+				begin
+					// 34(R3) - Disk number
+					disk      <= copy_din[7:0];
+					hdr_addr  <= 7'd2 + copy_din[6:0];
+					addr_r    <= SP;
+					io_state  <= ST_R;
+				end
+			ST_PAR4:
+				begin
+					// R0 - start block
+					lba       <= disk ? hdr_out + copy_din : copy_din;
 					hdd_start <= hdr_out;
-					copy_rd   <= 1'b0;
-					copy_addr <= rSP+16'd2;
-					state     <= state + 1'd1;
+					io_state  <= ST_R;
 				end
-			10: begin
-					hdr_addr  <= hdr_addr + 7'd1;
-					copy_rd   <= 1'b1;
-					state     <= state + 1'd1;
+			ST_PAR5:
+				begin
+					// R1 - length
+					write     <= copy_din[15];
+					total_size<= copy_din[15] ? (~copy_din[15:0])+1'd1 : copy_din[15:0];
+					hdr_addr  <= hdr_addr + 1'd1;
+					io_state  <= ST_R;
 				end
-			11: begin
-					copy_rd   <= 1'b1;
-					state     <= state + 1'd1;
-				end
-			12: begin
-					rR1       <= copy_data_i;
-					copy_rd   <= 1'b0;
-					copy_addr <= rSP+16'd4;
-					state     <= state + 1'd1;
-				end
-			13: begin
+			ST_PAR6:
+				begin
+					// R2 - address of buffer
+					vaddr     <= copy_din;
 					hdd_end   <= hdr_out;
-					total_size<= rR1[15] ? (~rR1)+16'd1 : rR1;
-					copy_rd   <= 1'b1;
-					state     <= state + 1'd1;
+					addr_r    <= SP+16'd8;
+					io_state  <= ST_R;
 				end
-			14: begin
-					copy_rd   <= 1'b1;
-					state     <= state + 1'd1;
+			ST_PAR7:
+				begin
+					// PSW to return the status
+					PSW       <= copy_din;
+					addr_r    <= 16'o52;
+					io_state  <= ST_R;
 				end
-			15: begin
-					rR2       <= copy_data_i;
-					copy_rd   <= 1'b0;
-					copy_addr <= rSP+16'd8;
-					state     <= state + 1'd1;
-				end
-			16: begin
-					copy_rd   <= 1'b1;
-					state     <= state + 1'd1;
-				end
-			17: begin
-					copy_rd   <= 1'b1;
-					state     <= state + 1'd1;
-				end
-			18: begin
-					rPSW      <= copy_data_i;
-					copy_rd   <= 1'b0;
-					copy_addr <= 16'o52;
-					state     <= state + 1'd1;
-				end
-			19: begin
-					copy_rd   <= 1'b1;
-					state     <= state + 1'd1;
-				end
-			20: begin
-					copy_rd   <= 1'b1;
-					state     <= state + 1'd1;
-				end
-			21: begin
-					error     <= copy_data_i;
-					copy_rd   <= 1'b0;
-					state     <= state + 1'd1;
-				end
-			22: begin
+			ST_PAR8:
+				begin
+					error     <= copy_din;
+					addr_w    <= vaddr;
+					addr_r    <= vaddr;
+
 					if(disk) begin
 					   //VHD access
-						if((bus_addr != 16'o177132) || !mounted || !hdd_end || !hdd_start || (disk >= 126)) begin
-							error[7:0] <= 8'd6;
-							rPSW[0]    <= 1'b1;
-							state      <= 100;
-						end else if(!total_size || rR2[0]) begin
-							error[7:0] <= 8'd10;
-							rPSW[0]    <= 1'b1;
-							state      <= 100;
+						if((bus_addr != 16'o177132) || !mounted || !hdd_end || !hdd_start || (disk >= 125)) begin
+							error[7:0] <= 6;
+							PSW[0]     <= 1;
+							io_state   <= ST_RES;
+						end else if(!total_size || vaddr[0]) begin
+							error[7:0] <= 10;
+							PSW[0]     <= 1;
+							io_state   <= ST_RES;
 						end else if((lba+((total_size+255) >> 8)) > hdd_end) begin
-							error[7:0] <= 8'd5;
-							rPSW[0]    <= 1'b1;
-							state      <= 100;
+							error[7:0] <= 5;
+							PSW[0]     <= 1;
+							io_state   <= ST_RES;
 						end else 
-							if(rR1[15]) state <= 8'd70; // write
-									else  state <= 8'd50; // read
+							if(write) io_state <= ST_HW; // write
+								else   io_state <= ST_HR; // read
+
 					end else begin
 					   //DSK access
-						if((bus_addr != 16'o177132) || rR1[15] || !fdd_ready || !fdd_size) begin
-							error[7:0] <= 8'd6;
-							rPSW[0]    <= 1'b1;
-							state      <= 100;
-						end else if(!total_size || rR2[0]) begin
-							error[7:0] <= 8'd10;
-							rPSW[0]    <= 1'b1;
-							state      <= 100;
+						if((bus_addr != 16'o177132) || write || !fdd_ready || !fdd_size) begin
+							error[7:0] <= 6;
+							PSW[0]     <= 1;
+							io_state   <= ST_RES;
+						end else if(!total_size || vaddr[0]) begin
+							error[7:0] <= 10;
+							PSW[0]     <= 1;
+							io_state   <= ST_RES;
 						end else if((lba+((total_size+255) >> 8)) > (fdd_size >> 9)) begin
-							error[7:0] <= 8'd5;
-							rPSW[0]    <= 1'b1;
-							state      <= 100;
+							error[7:0] <= 5;
+							PSW[0]     <= 1;
+							io_state   <= ST_RES;
 						end else begin 
-							lbaro <= (lbaro << 9) + 32'h120000;
-							state <= 30; // read
+							lba        <= (lba << 9) + 32'h120000;
+							io_state   <= ST_FR; // read
 						end
 					end
 				end
 
-			// Disk-A read
-			30: begin
-					if(total_size == 16'd0) begin
-						error[7:0] <= 8'd0;
-						rPSW[0]    <= 1'b0;
-						state      <= 100;
-					end else begin
-						copy_addr  <= lbaro[24:0];
-						copy_virt  <= 1'b0;
-						copy_rd    <= 1'b0;
-						copy_we    <= 1'b0;
-						state      <= state + 1'd1;
-					end;
-				end
-			31: begin
-					copy_rd     <= 1'b1;
-					state       <= state + 1'd1;
-				end
-			32: begin
-					copy_rd     <= 1'b1;
-					state       <= state + 1'd1;
-				end
-			33: begin
-					copy_data_o <= copy_data_i;
-					copy_rd     <= 1'b0;
-					copy_addr   <= rR2;
-					copy_virt   <= 1'b1;
-					state       <= state + 1'd1;
-				end
-			34: begin
-					copy_we     <= 1'b1;
-					state       <= state + 1'd1;
-				end
-			35: begin
-					copy_we     <= 1'b1;
-					state       <= state + 1'd1;
-				end
-			36: begin
-					copy_we     <= 1'b0;
-					rR2         <= rR2 + 2'd2;
-					lbaro       <= lbaro + 2'd2;
-					total_size  <= total_size - 1'd1;
-					state       <= 30;
+			// Floppy read
+			ST_FR:
+				begin
+					addr_r       <= lba[24:0];
+					cp_len       <= total_size;
+					io_state     <= ST_CP_R2V;
+					io_cp_ret    <= ST_RES_OK;
 				end
 
-			// Disk read
-			50: begin
+			// HDD read
+			ST_HR:
+				begin
 					if(!io_busy) begin
-						sd_rd    <= 1'b1;
-						io_busy  <= 1'b1;
-						part_size<= (total_size < 16'd256) ? total_size : 16'd256;
-						state    <= state + 1'd1;
-					end
-				end
-			51: state         <= state + 1'd1;
-			52: begin
-					if(!io_busy) begin
-						bk_addr  <= 7'd0;
-						total_size <= total_size - part_size;
-						state    <= state + 1'd1;
-					end
-				end
-			53: begin 
-					copy_data_o <= bk_ram_out;
-					copy_addr   <= rR2;
-					copy_we     <= 1'b0;
-					state       <= state + 1'd1;
-				end
-			54: begin
-					copy_we     <= 1'b1;
-					state       <= state + 1'd1;
-				end
-			55: state         <= state + 1'd1;
-			56: begin
-					copy_we     <= 1'b0;
-					rR2         <= rR2 + 2'd2;
-					bk_addr     <= bk_addr + 2'd1;
-					part_size   <= part_size - 2'd1;
-					state       <= state + 1'd1;
-				end
-			57: begin
-					if(part_size != 0) state <= 53;
-					else if(total_size != 0) begin 
-						lba   <= lba + 1;
-						state <= 50;
-					end else begin
-						error[7:0] <= 8'd0;
-						rPSW[0]    <= 1'b0;
-						state      <= 100;
-					end
-				end
-				
-			//Disk write
-			70: begin
-					if(!io_busy) begin
-						bk_wr     <= 1'b0;
-						bk_addr   <= 7'd0;
+						bk_wr     <= 0;
+						sd_rd     <= 1;
+						io_busy   <= 1;
 						part_size <= (total_size < 16'd256) ? total_size : 16'd256;
-						state     <= state + 1'd1;
+						io_state  <= io_state.next();
 					end
 				end
-			71: begin
-					total_size   <= total_size - part_size;
-					state        <= state + 1'd1;
-				end
-			72: begin
-					copy_addr    <= rR2;
-					bk_wr        <= 1'b0;
-					copy_rd      <= 1'b1;
-					state        <= state + 1'd1;
-				end
-			73: state          <= state + 1'd1;
-			74: begin
-					bk_data_wr   <= copy_data_i;
-					copy_rd      <= 1'b0;
-					rR2          <= rR2 + 2'd2;
-					part_size    <= part_size - 2'd1;
-					state        <= state + 1'd1;
-				end
-			75: begin
-					bk_wr        <= 1'b1;
-					state        <= state + 1'd1;
-				end
-			76: begin
-					bk_wr        <= 1'b0;
-					state        <= state + 1'd1;
-				end
-			77: begin
-					bk_addr      <= bk_addr + 2'd1;
-					if(part_size != 0) state <= 72;
-						else state<= state + 1'd1;
-				end
-			78: begin
+			ST_HR2:
+				begin
 					if(!io_busy) begin
-						sd_wr     <= 1'b1;
-						io_busy   <= 1'b1;
-						state     <= state + 1'd1;
+						bk_addr   <= 0;
+						total_size<= total_size - part_size;
+						io_state  <= io_state.next();
 					end
 				end
-			79: begin
+			ST_HR3:
+				begin
+					copy_virt    <= 1;
+					copy_dout    <= bk_ram_out;
+					io_state     <= ST_W;
+					io_rw_ret    <= io_state.next();
+				end
+			ST_HR4:
+				begin
+					bk_addr      <= bk_addr + 2'd1;
+					part_size    <= part_size - 2'd1;
+					io_state     <= io_state.next();
+				end
+			ST_HR5:
+				begin
+					if(part_size != 0) io_state <= ST_HR3;
+					else if(total_size != 0) begin 
+						lba       <= lba + 1;
+						io_state  <= ST_HR;
+					end else begin
+						io_state  <= ST_RES_OK;
+					end
+				end
+
+			// HDD write
+			ST_HW:
+				begin
+					if(!io_busy) begin
+						bk_wr     <= 0;
+						bk_addr   <= 0;
+						part_size <= (total_size < 16'd256) ? total_size : 16'd256;
+						io_state  <= io_state.next();
+					end
+				end
+			ST_HW2:
+				begin
+					total_size   <= total_size - part_size;
+					io_state     <= io_state.next();
+				end
+			ST_HW3:
+				begin
+					copy_virt    <= 1;
+					bk_wr        <= 0;
+					io_state     <= ST_R;
+					io_rw_ret    <= io_state.next();
+				end
+			ST_HW4:
+				begin
+					bk_data_wr   <= copy_din;
+					part_size    <= part_size - 2'd1;
+					io_state     <= io_state.next();
+				end
+			ST_HW5: begin
+					bk_wr        <= 1;
+					io_state     <= io_state.next();
+				end
+			ST_HW6: begin
+					bk_wr        <= 0;
+					io_state     <= io_state.next();
+				end
+			ST_HW7: begin
+					bk_addr      <= bk_addr + 2'd1;
+					io_state     <= io_state.next();
+					if(part_size != 0) io_state <= ST_HW3;
+				end
+			ST_HW8:
+				begin
+					if(!io_busy) begin
+						sd_wr     <= 1;
+						io_busy   <= 1;
+						io_state  <= io_state.next();
+					end
+				end
+			ST_HW9:
+				begin
 					if(!io_busy) begin
 						if(total_size != 0) begin 
 							lba    <= lba + 1;
-							state  <= 70;
+							io_state <= ST_HW;
 						end else begin
-							error[7:0] <= 8'd0;
-							rPSW[0]    <= 1'b0;
-							state      <= 100;
+							io_state <= ST_RES_OK;
 						end
 					end
 				end
 
+			// Successful result.
+			ST_RES_OK:
+				begin
+					error[7:0]   <= 0;
+					PSW[0]       <= 0;
+					io_state     <= ST_RES;
+				end
+
 			// Finish. Post the exit code.
-			100: begin
-					copy_virt   <= 1'b1;
-					copy_data_o <= error;
-					copy_addr   <= 16'o52;
-					copy_we     <= 1'b0;
-					state       <= state + 1'd1;
+			ST_RES:
+				begin
+					copy_virt    <= 1;
+					copy_dout    <= error;
+					addr_w       <= 16'o52;
+					io_state     <= ST_W;
+					io_rw_ret    <= io_state.next();
 				end
-			101: begin
-					copy_we     <= 1'b1;
-					state       <= state + 1'd1;
+			ST_RES2:
+				begin
+					copy_dout    <= PSW;
+					addr_w       <= SP+16'd8;
+					io_state     <= ST_W;
 				end
-			102: begin
-					copy_we     <= 1'b1;
-					state       <= state + 1'd1;
-				end
-			103: begin
-					copy_data_o <= rPSW;
-					copy_addr   <= rSP+16'd8;
-					copy_we     <= 1'b0;
-					state       <= state + 1'd1;
-				end
-			104: begin
-					copy_we     <= 1'b1;
-					state       <= state + 1'd1;
-				end
-			105: begin
-					copy_we     <= 1'b1;
-					state       <= state + 1'd1;
-				end
-			106: begin
-					copy_we     <= 1'b0;
-					copy_rd     <= 1'b0;
-					processing  <= 1'b0;
+			ST_RES3:
+				begin
+					processing   <= 0;
 				end
 
 			// BIN copy
-			200: begin
-					rR2         <= tape_addr;
-					bin_addr    <= 25'h100004;
-					total_size  <= {bin_size[15:1], 1'b0};
-					copy_data_o <= tape_addr;
-					copy_virt   <= 1'b1;
-					copy_addr   <= rSP;
-					copy_we     <= 1'b0;
-					state       <= state + 1'd1;
+			ST_BIN:
+				begin
+					// replace return address in stack
+					copy_virt    <= 1;
+					copy_dout    <= tape_addr;
+					addr_w       <= SP;
+					io_state     <= ST_W;
+					io_rw_ret    <= io_state.next();
 				end
-			201: begin
-					copy_we     <= 1'b1;
-					state       <= state + 1'd1;
+			ST_BIN2:
+				begin
+					// start address after EMT 36
+					copy_dout    <= tape_addr;
+					addr_w       <= 16'o264;
+					io_state     <= ST_W;
 				end
-			202: begin
-					copy_we     <= 1'b1;
-					state       <= state + 1'd1;
+			ST_BIN3:
+				begin
+					// length after EMT 36
+					copy_dout    <= tape_len;
+					io_state     <= ST_W;
 				end
-			203: begin
-					copy_we     <= 1'b0;
-					state       <= state + 1'd1;
+			ST_BIN4:
+				begin
+					addr_r       <= 25'h100004;
+					addr_w       <= tape_addr;
+					cp_len       <= tape_len[15:1];
+					io_state     <= ST_CP_R2V;
+					io_cp_ret    <= io_state.next();
 				end
-			204: begin
-					copy_data_o <= tape_addr;
-					copy_virt   <= 1'b1;
-					copy_addr   <= 16'o264;  // start address when loaded from TAPE
-					copy_we     <= 1'b0;
-					state       <= state + 1'd1;
-				end
-			205: begin
-					copy_we     <= 1'b1;
-					state       <= state + 1'd1;
-				end
-			206: begin
-					copy_we     <= 1'b1;
-					state       <= state + 1'd1;
-				end
-			207: begin
-					copy_we     <= 1'b0;
-					state       <= state + 1'd1;
-				end
-			208: begin
-					copy_data_o <= tape_len;
-					copy_virt   <= 1'b1;
-					copy_addr   <= 16'o266;  // length when loaded from TAPE
-					copy_we     <= 1'b0;
-					state       <= state + 1'd1;
-				end
-			209: begin
-					copy_we     <= 1'b1;
-					state       <= state + 1'd1;
-				end
-			210: begin
-					copy_we     <= 1'b1;
-					state       <= state + 1'd1;
-				end
-			211: begin
-					copy_we     <= 1'b0;
-					state       <= state + 1'd1;
-				end
-			212: begin
-					if(total_size == 16'd0) begin
-						processing  <= 1'b0;
-					end else begin
-						copy_addr  <= bin_addr;
-						copy_virt  <= 1'b0;
-						copy_rd    <= 1'b0;
-						copy_we    <= 1'b0;
-						state      <= state + 1'd1;
-					end;
-				end
-			213: begin
-					copy_rd     <= 1'b1;
-					state       <= state + 1'd1;
-				end
-			214: begin
-					copy_rd     <= 1'b1;
-					state       <= state + 1'd1;
-				end
-			215: begin
-					copy_data_o <= copy_data_i;
-					copy_rd     <= 1'b0;
-					copy_addr   <= rR2;
-					copy_virt   <= 1'b1;
-					state       <= state + 1'd1;
-				end
-			216: begin
-					copy_we     <= 1'b1;
-					state       <= state + 1'd1;
-				end
-			217: begin
-					copy_we     <= 1'b1;
-					state       <= state + 1'd1;
-				end
-			218: begin
-					copy_we     <= 1'b0;
-					rR2         <= rR2 + 2'd2;
-					bin_addr    <= bin_addr + 2'd2;
-					total_size  <= total_size - 2'd2;
-					state       <= 212;
+			ST_BIN5:
+				begin
+					processing   <= 0;
 				end
 		endcase
 	end
 
 	if(!io_busy) begin
 		if(!old_mounted && sd_mounted) begin
-			mounted  <= 1'b0;
-			conf     <= 1'b1;
-			sd_rd    <= 1'b1;
-			io_busy  <= 1'b1;
+			mounted    <= 0;
+			conf       <= 1;
+			sd_rd      <= 1;
+			io_busy    <= 1;
+			
+			processing <= 0; // can brake on-going IO, but nothing can be done.
+			sd_wr      <= 0;
+			copy_rd    <= 0;
+			copy_we    <= 0;
 		end
 		old_mounted <= sd_mounted;
 	end
