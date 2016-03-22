@@ -412,7 +412,6 @@ wire        keyboard_ack;
 keyboard_wb keyboard
 (
 	.*,
-	.scan_mode(0),
 	.bus_dout(keyboard_data),
 	.bus_ack(keyboard_ack)
 );

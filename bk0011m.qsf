@@ -362,7 +362,7 @@ set_global_assignment -name VERILOG_FILE VM1/vm1.v
 set_global_assignment -name VERILOG_FILE pll.v
 set_global_assignment -name VERILOG_FILE translate.v
 set_global_assignment -name VERILOG_FILE ps2_intf.v
-set_global_assignment -name VERILOG_FILE keyboard.v
+set_global_assignment -name SYSTEMVERILOG_FILE keyboard.sv
 set_global_assignment -name VERILOG_FILE ps2_mouse.v
 set_global_assignment -name VERILOG_FILE data_io.v
 set_global_assignment -name VERILOG_FILE user_io.v
