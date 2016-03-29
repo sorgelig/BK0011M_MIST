@@ -21,65 +21,6 @@
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-`define 	DCLO_WIDTH_CLK	  24   //  >5ms for 27MHz
-`define	ACLO_DELAY_CLK	  240  // >70ms for 27MHz
-
-module cpu_reset
-(
-	input		clk,
-	input		button,
-	input		plock,
-	output	dclo,
-	output	aclo
-);
-localparam DCLO_COUNTER_WIDTH = log2(`DCLO_WIDTH_CLK);
-localparam ACLO_COUNTER_WIDTH = log2(`ACLO_DELAY_CLK);
-
-reg [DCLO_COUNTER_WIDTH-1:0] dclo_cnt;
-reg [ACLO_COUNTER_WIDTH-1:0] aclo_cnt;
-reg [1:0] reset;
-reg aclo_out, dclo_out;
-
-assign dclo = dclo_out;
-assign aclo = aclo_out;
-
-always @(posedge clk) begin
-	//
-	// Resolve metastability issues
-	//
-	reset[0] <= button | plock;
-	reset[1] <= reset[0];
-	
-	if (reset[1]) begin
-		dclo_cnt <= 0;
-		aclo_cnt <= 0;
-		aclo_out <= 1;
-		dclo_out <= 1;
-	end else begin
-		//
-		// Count the DCLO pulse
-		//
-		if (dclo_cnt != `DCLO_WIDTH_CLK) dclo_cnt <= dclo_cnt + 1'b1;
-			else dclo_out <= 0;
-			
-		//
-		// After DCLO completion start count the ACLO pulse
-		//
-		if (!dclo_out) begin
-			if (aclo_cnt != `ACLO_DELAY_CLK) aclo_cnt <= aclo_cnt + 1'b1;
-				else aclo_out <= 0;
-		end
-	end
-end
-
-function integer log2(input integer value);
-begin
-	for (log2=0; value>0; log2=log2+1) 
-		value = value >> 1;
-end
-endfunction
-
-endmodule
 
 ////////////////////////////////////////////////////////////////////////////////
 // 
@@ -555,5 +496,71 @@ wire        dsk_copy_we;
 wire        dsk_copy_rd;
 
 disk_wb disk(.*, .reset(cpu_dclo), .bus_ack(disk_ack));
+
+endmodule
+
+
+////////////////////////////////////////////////////////////////////////////////
+// 
+// Reset module
+//
+
+`define 	DCLO_WIDTH_CLK	  24   //  >5ms for 27MHz
+`define	ACLO_DELAY_CLK	  240  // >70ms for 27MHz
+
+module cpu_reset
+(
+	input		clk,
+	input		button,
+	input		plock,
+	output	dclo,
+	output	aclo
+);
+localparam DCLO_COUNTER_WIDTH = log2(`DCLO_WIDTH_CLK);
+localparam ACLO_COUNTER_WIDTH = log2(`ACLO_DELAY_CLK);
+
+reg [DCLO_COUNTER_WIDTH-1:0] dclo_cnt;
+reg [ACLO_COUNTER_WIDTH-1:0] aclo_cnt;
+reg [1:0] reset;
+reg aclo_out, dclo_out;
+
+assign dclo = dclo_out;
+assign aclo = aclo_out;
+
+always @(posedge clk) begin
+	//
+	// Resolve metastability issues
+	//
+	reset[0] <= button | plock;
+	reset[1] <= reset[0];
+	
+	if (reset[1]) begin
+		dclo_cnt <= 0;
+		aclo_cnt <= 0;
+		aclo_out <= 1;
+		dclo_out <= 1;
+	end else begin
+		//
+		// Count the DCLO pulse
+		//
+		if (dclo_cnt != `DCLO_WIDTH_CLK) dclo_cnt <= dclo_cnt + 1'b1;
+			else dclo_out <= 0;
+			
+		//
+		// After DCLO completion start count the ACLO pulse
+		//
+		if (!dclo_out) begin
+			if (aclo_cnt != `ACLO_DELAY_CLK) aclo_cnt <= aclo_cnt + 1'b1;
+				else aclo_out <= 0;
+		end
+	end
+end
+
+function integer log2(input integer value);
+begin
+	for (log2=0; value>0; log2=log2+1) 
+		value = value >> 1;
+end
+endfunction
 
 endmodule
