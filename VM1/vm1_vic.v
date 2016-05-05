@@ -6,7 +6,8 @@
 //
 module vic_wb #(parameter N=1)
 (
-	input						wb_clk_i,	// system clock
+	input						clk_sys,
+	input						ce,
 	input						wb_rst_i,	// peripheral reset
 	output reg				wb_irq_o,	// vectored interrupt request
 	output reg 	[15:0]	wb_dat_o,	// interrupt vector output
@@ -24,17 +25,14 @@ localparam W = log2(N);
 reg	[W-1:0] nvec;
 integer i;
 
-always @(posedge wb_clk_i or posedge wb_rst_i)
-begin
-	if (wb_rst_i)
-	begin
+always @(posedge clk_sys or posedge wb_rst_i) begin
+	if (wb_rst_i) begin
 		wb_ack_o <= 1'b0;
 		wb_dat_o <= 16'O000000;
 		iack     <= 0;
 		nvec 		<= {(W){1'b1}};
-	end
-	else
-	begin
+	end 
+	else if(ce) begin
 		wb_ack_o <= wb_stb_i & wb_irq_o & ~wb_ack_o;
 		wb_irq_o <= ~(&nvec) & ~wb_ack_o;
 

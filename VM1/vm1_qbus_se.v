@@ -16,7 +16,7 @@
 // All external signal transitions should be synchronzed with pin_clk
 // The core does not contain any extra metastability eliminators itself
 //
-module vm1_qbus
+module vm1_qbus_se
 #(parameter 
 //______________________________________________________________________________
 //
@@ -35,9 +35,11 @@ module vm1_qbus
 	VM1_CORE_MULG_VERSION = 0
 )
 (
-   input          pin_clk_p,     	// processor clock
-   input          pin_clk_n,     	// processor clock 180 degree
-   input          pin_ena,       	// processor clock enable
+   input          pin_clk,
+   input          pin_ce_p,
+   input          pin_ce_n,
+	input          pin_ce_timer,
+
    input  [1:0]   pin_pa,        	// processor number
    input          pin_init_in,   	// peripheral reset input
    output         pin_init_out,  	// peripheral reset output
@@ -253,8 +255,8 @@ reg   [7:0]    reg_err;          	// 177704: error register
                                  	//
 reg   [3:0]    freg;             	//
 reg   [15:0]   psw;              	// processor status word
-wire 	[15:0]   x, xr, xr_ff, xr_rm;	// X bus
-wire  [15:0]   y, yr, yr_ff, yr_rm;	// Y bus
+wire  [15:0]   x, xr;               // X bus
+wire  [15:0]   y, yr;               // Y bus
 wire  [15:0]   f;                	// ALU function inverted output
 wire  [15:0]   h;                	// half summ
 wire  [15:0]   c;                	// carry
@@ -341,7 +343,7 @@ assign pin_rmw       = plrt[7] & plrt[8];
 assign pin_sync_out  = sync_out;
 assign pin_sync_ena  = sync_ena | sync_out;
 assign pin_ctrl_ena  = qbus_win | iako_oe;
-assign pin_rply_out  = (sel_in | sel_out) & (pin_rply_in | ~sel_02 | ~rply_s2);
+assign pin_rply_out  = (sel_in | sel_out) & (~sel_02 | ~rply_s2);
 
 assign pin_iako      = iako_out_lh;
 assign pin_bsy       = sync_out | pin_ctrl_ena;
@@ -366,42 +368,46 @@ assign ir_clr	 			= (~tplm_rc[3] & tplm[3])
 assign ir_seq_rc	= ~mjres & ~mjres_rc 
 						& (~ir_seq | tplm[1] | tplm[3])
 						& (plm23_wait | ir_seq);
-always @(posedge pin_clk_p)
-						ir_seq <= ir_seq_rc;
+always @(posedge pin_clk)
+						if(pin_ce_p) ir_seq <= ir_seq_rc;
 
 assign plm_ena_fc = ~sop_out[0] & (mjres | ustb1_h | ~alu_busy_rp) & ~qbus_nrdy;
-always @(posedge pin_clk_n)
+always @(posedge pin_clk)
 begin
-	plm_ena <= plm_ena_fc;
+	if(pin_ce_n) plm_ena <= plm_ena_fc;
 end
 
 assign sop_up = sop_out[3] | (~sop_out[2] & ~sop_out[1]);
-always @(posedge pin_clk_p)
+always @(posedge pin_clk)
 begin
-   sop_out[2] <= sop_out[1];
+	if(pin_ce_p) begin
+		sop_out[2] <= sop_out[1];
 	
-   if (plm_stb_rc)
-      sop_out[0] <= 1'b0;
-   else
-      if (mjres_rc | plm_ena)
-         sop_out[0] <= 1'b1;
+		if (plm_stb_rc)
+			sop_out[0] <= 1'b0;
+		else
+			if (mjres_rc | plm_ena)
+				sop_out[0] <= 1'b1;
+	end
 end
 
-always @(posedge pin_clk_n)
+always @(posedge pin_clk)
 begin
-   sop_out[1] <= sop_out[0];
-   sop_out[3] <= ir_stop | pli_nrdy | ir_stb2 | mjres_h | (alu_nrdy & (plop[0] | plop[4]));
+	if(pin_ce_n) begin
+		sop_out[1] <= sop_out[0];
+		sop_out[3] <= ir_stop | pli_nrdy | ir_stb2 | mjres_h | (alu_nrdy & (plop[0] | plop[4]));
+	end
 end
 
 assign plm_stb_rc = ~plm_stb & ~sop_up;
-always @(posedge pin_clk_p) plm_stb <= plm_stb_rc;
+always @(posedge pin_clk) if(pin_ce_p) plm_stb <= plm_stb_rc;
 
-always @(posedge pin_clk_n or posedge mjres)
+always @(posedge pin_clk or posedge mjres)
 begin
    if (mjres)
       ustb <= 1'b0;
    else
-   begin
+   if(pin_ce_n) begin
       if (ustb_h)
          ustb <= 1'b0;
       else
@@ -410,58 +416,60 @@ begin
    end
 end
 
-always @(posedge pin_clk_p or posedge mjres)
+always @(posedge pin_clk or posedge mjres)
 begin
 	if (mjres)
 		ustb_h <= 1'b0;
 	else
-		ustb_h <= ustb;
+		if(pin_ce_p) ustb_h <= ustb;
 end
-always @(posedge pin_clk_n) ustb1    <= ustb_h;
-always @(posedge pin_clk_p) ustb1_h  <= ustb1;
-always @(posedge pin_clk_n) ustb1_hl <= ustb1_h;
+always @(posedge pin_clk) if(pin_ce_n) ustb1    <= ustb_h;
+always @(posedge pin_clk) if(pin_ce_p) ustb1_h  <= ustb1;
+always @(posedge pin_clk) if(pin_ce_n) ustb1_hl <= ustb1_h;
 
-always @(posedge pin_clk_n or posedge mjres)
+always @(posedge pin_clk or posedge mjres)
 begin
    if (mjres)
       alu_busy_fp <= 1'b0;
    else
-      alu_busy_fp <= alu_busy_rp;
+      if(pin_ce_n) alu_busy_fp <= alu_busy_rp;
 end
 
-always @(posedge pin_clk_p or posedge mjres)
+always @(posedge pin_clk or posedge mjres)
 begin
    if (mjres)
       alu_busy_rp <= 1'b0;
-   else
+   else if(pin_ce_p) begin
 		if (plm2x) 
 			alu_busy_rp <= 1'b1;
       else
          if (ustb1) 
 				alu_busy_rp <= 1'b0;
+	end
 end
 
-always @(posedge pin_clk_p or posedge mjres)
+always @(posedge pin_clk or posedge mjres)
 begin
    if (mjres)
       alu_nrdy <= 1'b0;
-   else
+   else if(pin_ce_p) begin
 		if (plm2x)
 			alu_nrdy <= 1'b1;
       else
          if (ustb1_h) 
 				alu_nrdy <= 1'b0;
+	end
 end
 
 assign ir_stb1 = tplm[1] | tplm[3];
 assign ir_set_fc  = plm23_fc[0] | plm23_fc[1] | plm23_fc[3];
-always @(posedge pin_clk_n) ir_set <= ir_set_fc;
-always @(posedge pin_clk_p or posedge mjres)
+always @(posedge pin_clk) if(pin_ce_n) ir_set <= ir_set_fc;
+always @(posedge pin_clk or posedge mjres)
 begin
 	if (mjres)
 		ir_stb2 <= 1'b0;
 	else
-	begin
+	if(pin_ce_p) begin
 		if (ir_clr)
 			ir_stb2 <= 1'b0;
 		else
@@ -470,37 +478,39 @@ begin
 	end
 end
 
-always @(posedge pin_clk_p or posedge mjres)
+always @(posedge pin_clk or posedge mjres)
 begin
 	if (mjres)
 		ir_stop <= 1'b0;
-	else
+	else if(pin_ce_p) begin
 		if (~reg_csr[0])
 			ir_stop <= 1'b0;
 		else
 			if (ir_clr)
 				ir_stop <= 1'b1;
+	end
 end
 
-always @(posedge pin_clk_n or posedge mjres)
+always @(posedge pin_clk or posedge mjres)
 begin
    if (mjres)
       tplmz <= 3'b000;
-   else
+   else if(pin_ce_n) begin
       if (plm_ena_fc)
       begin
          tplmz[1] <= (plm[3:1] == 3'b100);
          tplmz[2] <= (plm[3:1] == 3'b010);
          tplmz[3] <= (plm[3:1] == 3'b011);
       end
+	end
 end		
 
 assign tplm_rc[1] = ~(mjres | mjres_rc | din_done) & ((uplr_stb & tplmz[1]) | tplm[1]);	// instruction early prefetch
 assign tplm_rc[2] = ~(mjres | mjres_rc | din_done) & ((uplr_stb & tplmz[2]) | tplm[2]);	// data retrieving
 assign tplm_rc[3] = ~(mjres | mjres_rc | din_done) & ((uplr_stb & tplmz[3]) | tplm[3]);	// instruction fetch
-always @(posedge pin_clk_p) tplm <= tplm_rc;
+always @(posedge pin_clk) if(pin_ce_p) tplm <= tplm_rc;
 
-always @(posedge pin_clk_p)
+always @(posedge pin_clk)
 begin
 //
 //		plr[6]	QBUS operation type: byte operation flag
@@ -514,22 +524,24 @@ begin
 //						110 - read-modify-write word
 //						111 - read-modify-write byte
 //
-   plrtz[6] <= plr[6];
-   plrtz[7] <= plr[7] & plr[8];
-   plrtz[8] <= plr[8];
+	if(pin_ce_p) begin
+		plrtz[6] <= plr[6];
+		plrtz[7] <= plr[7] & plr[8];
+		plrtz[8] <= plr[8];
 	
-	//
-	// Reset Read Flag after read completion within
-	// read-modify-write operations
-	//
-   if (din_done)
-      plrt[8] <= 1'b0;
-   else
-      if (uplr_stb)
-         plrt[8] <= plrtz[8];
+		//
+		// Reset Read Flag after read completion within
+		// read-modify-write operations
+		//
+		if (din_done)
+			plrt[8] <= 1'b0;
+		else
+			if (uplr_stb)
+				plrt[8] <= plrtz[8];
 
-   if (uplr_stb)
-      plrt[7:6] <= plrtz[7:6];
+		if (uplr_stb)
+			plrt[7:6] <= plrtz[7:6];
+	end
 end
 
 //______________________________________________________________________________
@@ -537,7 +549,7 @@ end
 // Qbus logic
 //
 assign qbus_done = (din_done & ~plrt[7]) | dout_done | mjres;
-always @(posedge pin_clk_p) iako_out_lh <= iako_out;
+always @(posedge pin_clk) if(pin_ce_p) iako_out_lh <= iako_out;
 assign iako_out   = din_out & iak_flag;
 //
 // Master processor never asserts DMR_OUT
@@ -548,111 +560,125 @@ assign dmr_out = dmr_req & (pin_pa != 2'b00);
 // (converted to flip-flops approach)
 //
 assign rply_ack_fc = (pin_rply_in & pin_bsy);
-always @(posedge pin_clk_p) rply_ack[1] <= rply_ack_fc;
-always @(posedge pin_clk_n) rply_ack[2] <= rply_ack[1];
-always @(posedge pin_clk_p) rply_ack[3] <= rply_ack[2];
+always @(posedge pin_clk) if(pin_ce_p) rply_ack[1] <= rply_ack_fc;
+always @(posedge pin_clk) if(pin_ce_n) rply_ack[2] <= rply_ack[1];
+always @(posedge pin_clk) if(pin_ce_p) rply_ack[3] <= rply_ack[2];
 
 assign alu_qrdy = (~qbus_adr | plr[23] | (~plr[7] & ~plr[8]))	// wait for areg free
 					 & (~dout_req | plr[23] | plr[7] | plr[8])		// wait for write complete
                 & (plr[10] | (~tplm[2] & ~iak_flag));				// wait for data or vector fetch
 					 
-always @(posedge pin_clk_p)
+always @(posedge pin_clk)
 begin
-   if (uplr_stb)
-      qbus_adr <= 1'b1;
-   else
-      if (mjres | mjres_rc | sync_fedge)
-         qbus_adr <= 1'b0;
+	if(pin_ce_p) begin
+		if (uplr_stb)
+			qbus_adr <= 1'b1;
+		else
+			if (mjres | mjres_rc | sync_fedge)
+				qbus_adr <= 1'b0;
+	end
 end
 
 assign dmr_req_rc = ~(~sync_out & qbus_win) & (au_astb | dmr_req);
-always @(posedge pin_clk_p or posedge mjres)
+always @(posedge pin_clk or posedge mjres)
 begin
 	if (mjres)
 		dmr_req <= 1'b0;
-	else
+	else if(pin_ce_p) 
 		dmr_req <= dmr_req_rc;
 end
-always @(posedge pin_clk_n) dmr_req_l <= dmr_req;
+always @(posedge pin_clk) if(pin_ce_n) dmr_req_l <= dmr_req;
 
 assign dout_req_rc = (~plrt[8] & au_qstbx & (dmr_req_rc | qbus_own_rp)) | (~qbus_done & dout_req);
-always @(posedge pin_clk_p or posedge mjres)
+always @(posedge pin_clk or posedge mjres)
 begin
 	if (mjres)
 		dout_req <= 1'b0;
-	else
+	else if(pin_ce_p) 
 		dout_req <= dout_req_rc;
 end
 
 assign dout_ext   = dout_out | dout_out_l;
 assign dout_start = dout_req_rc & qbus_flag_rc & ~rply_ack[2]; // originally ~rply_ack[1]
 
-always @(posedge pin_clk_p or posedge mjres)
+always @(posedge pin_clk or posedge mjres)
 begin
 	if (mjres)
 		dout_out <= 1'b0;
-	else
+	else if(pin_ce_p) begin 
 		if (dout_done)
 			dout_out <= 1'b0;
 		else
 			if (dout_start)
 				dout_out <= 1'b1;
+	end
 end
 
-always @(posedge pin_clk_n)
+always @(posedge pin_clk)
 begin
-	dout_done  <= rply_ack[1] & dout_out;
-   dout_out_l <= dout_out;
+	if(pin_ce_n) begin
+		dout_done  <= rply_ack[1] & dout_out;
+		dout_out_l <= dout_out;
+	end
 end
 
 assign din_start    = oe_set | (plrt[8] & sync_fedge);
 assign din_done     = din_out_l & (rply_ack[3] | rply_ack[2]);
-always @(posedge pin_clk_n) din_out_l <= din_out;
-always @(posedge pin_clk_p or posedge mjres)
+always @(posedge pin_clk) if(pin_ce_n) din_out_l <= din_out;
+always @(posedge pin_clk or posedge mjres)
 begin
    if (mjres)
       din_out <= 1'b0;
-	else
+	else if(pin_ce_p) begin
 		if (din_done)
 			din_out <= 1'b0;
 		else
 			if (din_start)
 				din_out <= 1'b1;
+	end
 end
 
 assign qbus_tena = dout_out | din_out;
 assign oe_clr_fc = mjres | (~rply_ack_fc & rply_ack[1] & ~qbus_flag);
 assign oe_set_fc = qbus_gnt & iak_flag & ~dmr_req & ~qbus_own;
-always @(posedge pin_clk_n)
+always @(posedge pin_clk)
 begin
-   if (oe_clr_fc)
-      iako_oe <= 1'b0;
-   else
-      if (oe_set_fc)
-         iako_oe <= 1'b1;
-	oe_clr <= oe_clr_fc;
-	oe_set <= oe_set_fc;
+	if(pin_ce_n) begin
+		if (oe_clr_fc)
+			iako_oe <= 1'b0;
+		else
+			if (oe_set_fc)
+				iako_oe <= 1'b1;
+		oe_clr <= oe_clr_fc;
+		oe_set <= oe_set_fc;
+	end
 end
 
 assign sync_stb   = qbus_win & (~sync_out_h | ~qbus_win_h);
 assign sync_fedge = sync_out & ~sync_ena;
-always @(posedge pin_clk_n)
+always @(posedge pin_clk)
 begin
-   if (oe_clr_fc)
-      qbus_win <= 1'b0;
-   else
-      if (dmr_req & qbus_gnt)
-         qbus_win <= 1'b1;
+	if(pin_ce_n) begin
+		if (oe_clr_fc)
+			qbus_win <= 1'b0;
+		else
+			if (dmr_req & qbus_gnt)
+				qbus_win <= 1'b1;
+	end
 end
-always @(posedge pin_clk_p)
+always @(posedge pin_clk)
 begin
-   qbus_win_h <= qbus_win;
-   sync_out_h <= sync_out;
+	if(pin_ce_p) begin
+		qbus_win_h <= qbus_win;
+		sync_out_h <= sync_out;
+	end
 end
-always @(posedge pin_clk_n)
+always @(posedge pin_clk)
 begin
-   sync_out <= qbus_win_h;
-   sync_ena <= sync_out_h;
+	if(pin_ce_n) begin
+		sync_out <= qbus_win_h;
+		sync_ena <= sync_out_h;
+	end
 end
 
 assign qbus_yield = ~iako_oe & ~qbus_own & (pin_pa[1:0] == 2'b00) & pin_dmr_in;
@@ -661,55 +687,61 @@ assign qbus_gnt   = (qbus_nosr_h | (sync_out_h & ~qbus_win_h))
                   & (qbus_free_h | (dmr_out & sack_out));
 assign qbus_nosr_rc = ~pin_rply_in & ~pin_sync_in;
 
-always @(posedge pin_clk_p) qbus_free_h <= qbus_free;
-always @(posedge pin_clk_p) qbus_nosr_h <= qbus_nosr_rc;
-always @(posedge pin_clk_n) qbus_gnt_l <= qbus_gnt;
+always @(posedge pin_clk) if(pin_ce_p) qbus_free_h <= qbus_free;
+always @(posedge pin_clk) if(pin_ce_p) qbus_nosr_h <= qbus_nosr_rc;
+always @(posedge pin_clk) if(pin_ce_n) qbus_gnt_l <= qbus_gnt;
 
 assign qbus_own = qbus_own_fp | qbus_own_rp;
-always @(posedge pin_clk_p)
+always @(posedge pin_clk)
 begin
-   if (qbus_done)
-      qbus_own_rp <= 1'b0;
-	else
-      if (dmr_req_l & qbus_gnt_l)
-         qbus_own_rp <= 1'b1;
+	if(pin_ce_p) begin 
+		if (qbus_done)
+			qbus_own_rp <= 1'b0;
+		else
+			if (dmr_req_l & qbus_gnt_l)
+				qbus_own_rp <= 1'b1;
+	end
 end
-always @(posedge pin_clk_n)
+always @(posedge pin_clk)
 begin
-   if (qbus_own_rp)
-      qbus_own_fp <= 1'b0;
-	else
-      if (dmr_req & qbus_gnt)
-         qbus_own_fp <= 1'b1;
+	if(pin_ce_n) begin
+		if (qbus_own_rp)
+			qbus_own_fp <= 1'b0;
+		else
+			if (dmr_req & qbus_gnt)
+				qbus_own_fp <= 1'b1;
+	end
 end
 
 assign qbus_flag_rc = ~qbus_done & (sync_fedge | qbus_flag);
-always @(posedge pin_clk_p) qbus_flag <= qbus_flag_rc;
+always @(posedge pin_clk) if(pin_ce_p) qbus_flag <= qbus_flag_rc;
 
-always @(posedge pin_clk_p or posedge mjres)
+always @(posedge pin_clk or posedge mjres)
 begin
 	if (mjres)
       sack_out <= 1'b0;
-	else
+	else if(pin_ce_p) begin
 		if (qbus_done)
 			sack_out <= 1'b0;
 		else
 			if (pin_dmgi & (qbus_nosr_rc | (sync_out & ~qbus_win)) & qbus_req)
 				sack_out <= 1'b1;
+	end
 end
 
-always @(posedge pin_clk_n) dmgi_in_l <= pin_dmgi;
+always @(posedge pin_clk) if(pin_ce_n) dmgi_in_l <= pin_dmgi;
 assign dmgo_out = qbus_yield | (~qbus_req & dmgi_in_l);
-always @(posedge pin_clk_p or posedge mjres)
+always @(posedge pin_clk or posedge mjres)
 begin
 	if (mjres)
       qbus_req <= 1'b0;
-	else
+	else if(pin_ce_p) begin
 		if (qbus_done)
 			qbus_req <= 1'b0;
 		else
 			if (dmr_out & ~pin_dmgi)
 				qbus_req <= 1'b1;
+	end
 end
 
 //______________________________________________________________________________
@@ -722,12 +754,12 @@ assign uplr_stb  = (au_astb & ~qbus_aseq[0])
 					  | (au_astb &  qbus_aseq[0] & oe_clr)
 					  | qbus_aseq[1] & oe_clr;
 							
-always @(posedge pin_clk_n or posedge mjres)
+always @(posedge pin_clk or posedge mjres)
 begin
 	if (mjres)
 		qbus_aseq <= 2'b00;
 	else
-	begin
+	if(pin_ce_n) begin
 		//
 		// Reset the completed request if it is only one
 		//
@@ -765,8 +797,8 @@ assign   ad_oe    = sync_stb | dout_ext | ~(sel_16 | sel_14 | ~sel_in);
 
 vm1_timer   timer
 (
-   .tve_clk(pin_clk_p),
-   .tve_ena(pin_ena),
+   .tve_clk(pin_clk),
+   .tve_ena(pin_ce_timer),
    .tve_reset(pin_init_out | pin_init_in),
    .tve_dclo(pin_dclo),
    .tve_sp(pin_sp),
@@ -789,28 +821,29 @@ vm1_timer   timer
 //
 // Timeout exception request should be synchronized with raising clk's edge
 //
-always @(posedge pin_clk_p)
+always @(posedge pin_clk)
 begin
-	qbus_tovf <= &qbus_timer[5:2];
+	if(pin_ce_p) qbus_tovf <= &qbus_timer[5:2];
 end
 
-always @(posedge pin_clk_n or negedge qbus_tena)
+always @(posedge pin_clk or negedge qbus_tena)
 begin
    if (~qbus_tena)
       qbus_timer <= 6'o00;
-   else
+   else if(pin_ce_n) begin
       if (~qbus_tovf)
          qbus_timer <= qbus_timer + 6'o01;
+	end
 end
 //
 // Control register at 177700
 //
-always @(posedge pin_clk_p or posedge reset)
+always @(posedge pin_clk or posedge reset)
 begin
    if (reset)
       reg_csr <= 3'b000;
    else
-   begin
+   if(pin_ce_p) begin
       //
       // Bit 0 of control register
       //
@@ -845,109 +878,115 @@ end
 // Bit 5 is not used (always read as one)
 // Bit 6 is Odd Address Trap (is not implmented)
 //
-always @(posedge pin_clk_p)
+always @(posedge pin_clk)
 begin
-   if (reset_rc | ir_set)
-      reg_err <= 8'b00100000;
-   else
-   begin
-      //
-      // Bit 0 - double error
-      //
-      if (  (exc_dbl[0] & exc_uop)
-          | (exc_dbl[1] & qbus_tovf)
-          | (exc_dbl[2] & exc_oat)
-          | (exc_dbl[3] & exc_err7))
-         reg_err[0] <= 1'b1;
-      else
-         if (sel_out & sel_04)
-            reg_err[0] <= wb_pio_dat_i[0];
-      //
-      // Bit 1 - undefined opcode
-      //
-      if (exc_uop)
-         reg_err[1] <= 1'b1;
-      else
-         if (sel_out & sel_04)
-            reg_err[1] <= wb_pio_dat_i[1];
-      //
-      // Bit 2 & 3 - unknown error, exceptions not implemented
-      //
-      if (exc_err2)
-         reg_err[2] <= 1'b1;
-      else
-         if (sel_out & sel_04)
-            reg_err[2] <= wb_pio_dat_i[2];
+	if(pin_ce_p) begin
+		if (reset_rc | ir_set)
+			reg_err <= 8'b00100000;
+		else
+		begin
+			//
+			// Bit 0 - double error
+			//
+			if (  (exc_dbl[0] & exc_uop)
+				 | (exc_dbl[1] & qbus_tovf)
+				 | (exc_dbl[2] & exc_oat)
+				 | (exc_dbl[3] & exc_err7))
+				reg_err[0] <= 1'b1;
+			else
+				if (sel_out & sel_04)
+					reg_err[0] <= wb_pio_dat_i[0];
+			//
+			// Bit 1 - undefined opcode
+			//
+			if (exc_uop)
+				reg_err[1] <= 1'b1;
+			else
+				if (sel_out & sel_04)
+					reg_err[1] <= wb_pio_dat_i[1];
+			//
+			// Bit 2 & 3 - unknown error, exceptions not implemented
+			//
+			if (exc_err2)
+				reg_err[2] <= 1'b1;
+			else
+				if (sel_out & sel_04)
+					reg_err[2] <= wb_pio_dat_i[2];
 
-      if (exc_err3)
-         reg_err[3] <= 1'b1;
-      else
-         if (sel_out & sel_04)
-            reg_err[3] <= wb_pio_dat_i[3];
-      //
-      // Bit 4 - qbus timeout
-      //
-      if (qbus_tovf)
-         reg_err[4] <= 1'b1;
-      else
-         if (sel_out & sel_04)
-            reg_err[4] <= wb_pio_dat_i[4];
-      //
-      // Bit 6 - odd address trap
-      //
-      if (exc_oat)
-         reg_err[6] <= 1'b1;
-      else
-         if (sel_out & sel_04)
-            reg_err[6] <= wb_pio_dat_i[6];
-      //
-      // Bit 7 - unknown error, no exception
-      //
-      if (exc_err7)
-         reg_err[7] <= 1'b1;
-      else
-         if (sel_out & sel_04)
-            reg_err[7] <= wb_pio_dat_i[7];
-   end
-   //
-   // Double error detectors
-   //
-   if (~exc_uop)  	exc_dbl[0] <= reg_err[1];
-   if (~qbus_tovf) 	exc_dbl[1] <= reg_err[4];
-   if (~exc_oat)  	exc_dbl[2] <= reg_err[6];
-   if (~exc_err7)  	exc_dbl[3] <= reg_err[7];
+			if (exc_err3)
+				reg_err[3] <= 1'b1;
+			else
+				if (sel_out & sel_04)
+					reg_err[3] <= wb_pio_dat_i[3];
+			//
+			// Bit 4 - qbus timeout
+			//
+			if (qbus_tovf)
+				reg_err[4] <= 1'b1;
+			else
+				if (sel_out & sel_04)
+					reg_err[4] <= wb_pio_dat_i[4];
+			//
+			// Bit 6 - odd address trap
+			//
+			if (exc_oat)
+				reg_err[6] <= 1'b1;
+			else
+				if (sel_out & sel_04)
+					reg_err[6] <= wb_pio_dat_i[6];
+			//
+			// Bit 7 - unknown error, no exception
+			//
+			if (exc_err7)
+				reg_err[7] <= 1'b1;
+			else
+				if (sel_out & sel_04)
+					reg_err[7] <= wb_pio_dat_i[7];
+		end
+		//
+		// Double error detectors
+		//
+		if (~exc_uop)  	exc_dbl[0] <= reg_err[1];
+		if (~qbus_tovf) 	exc_dbl[1] <= reg_err[4];
+		if (~exc_oat)  	exc_dbl[2] <= reg_err[6];
+		if (~exc_err7)  	exc_dbl[3] <= reg_err[7];
+	end
 end
 
-always @(posedge pin_clk_p)
+always @(posedge pin_clk)
 begin
-   if (~pin_sync_in)
-   begin
-      sel_xx <= sel177x;
-      sel_00 <= sel177x & (pin_ad_in[3:1] == 3'b000);
-      sel_02 <= sel177x & (pin_ad_in[3:1] == 3'b001);
-      sel_04 <= sel177x & (pin_ad_in[3:1] == 3'b010);
-      sel_06 <= sel177x & (pin_ad_in[3:1] == 3'b011);
-      sel_10 <= sel177x & (pin_ad_in[3:1] == 3'b100);
-      sel_12 <= sel177x & (pin_ad_in[3:1] == 3'b101);
-      sel_14 <= sel177x & (pin_ad_in[3:1] == 3'b110);
-      sel_16 <= sel177x & (pin_ad_in[3:1] == 3'b111);
-   end
+	if(pin_ce_p) begin
+		if (~pin_sync_in)
+		begin
+			sel_xx <= sel177x;
+			sel_00 <= sel177x & (pin_ad_in[3:1] == 3'b000);
+			sel_02 <= sel177x & (pin_ad_in[3:1] == 3'b001);
+			sel_04 <= sel177x & (pin_ad_in[3:1] == 3'b010);
+			sel_06 <= sel177x & (pin_ad_in[3:1] == 3'b011);
+			sel_10 <= sel177x & (pin_ad_in[3:1] == 3'b100);
+			sel_12 <= sel177x & (pin_ad_in[3:1] == 3'b101);
+			sel_14 <= sel177x & (pin_ad_in[3:1] == 3'b110);
+			sel_16 <= sel177x & (pin_ad_in[3:1] == 3'b111);
+		end
+	end
 end
 
 assign rply_s1 = sel_02 & sel_out & rply_s3;
-always @(posedge pin_clk_n) rply_s3 <= ~rply_s2;
-always @(posedge pin_clk_n) rply_s2 <= start_irq;
-always @(posedge pin_clk_p)
+always @(posedge pin_clk) if(pin_ce_n) rply_s3 <= ~rply_s2;
+always @(posedge pin_clk) if(pin_ce_n) rply_s2 <= start_irq;
+always @(posedge pin_clk)
 begin
    //
    // Original circuit contains error
    // The start_irq request is reset by interrupt ack and EMT execution (last one is wrong)
    //
-   if (reset | ((vsel[2:0] == 3'b110) & (plr[28:25] == 4'b0010) & ((plr[13] & ~plr[14]) | plr[11])))
-      start_irq <= 1'b0;
-   else
-      if (rply_s1)
-         start_irq <= 1'b1;
+	if(pin_ce_p) begin
+		if (reset | ((vsel[2:0] == 3'b110) & (plr[28:25] == 4'b0010) & ((plr[13] & ~plr[14]) | plr[11])))
+			start_irq <= 1'b0;
+		else
+			if (rply_s1)
+				start_irq <= 1'b1;
+	end
 end
 
 //______________________________________________________________________________
@@ -959,38 +998,40 @@ assign pli = VM1_CORE_MULG_VERSION ? pli_g : pli_a;
 vm1g_pli  pli_matrix_g(.rq(rq), .sp(pli_g));
 vm1a_pli  pli_matrix_a(.rq(rq), .sp(pli_a));
 
-always @(posedge pin_clk_p)
+always @(posedge pin_clk)
 begin
-   rq[0]  <= psw[10];
-   rq[1]  <= plir[0];   // pli4r
-   rq[2]  <= psw[11];
-   rq[3]  <= uop;
-   rq[4]  <= psw[7];
-   rq[9]  <= qbto;
-   rq[10] <= reg_err[0];
-   rq[11] <= pin_aclo & aclo;
-   rq[12] <= reg_csr[2];
-   rq[13] <= ~pin_aclo & acok;
-   rq[14] <= pin_irq[1];
-   rq[15] <= psw[4];
-   rq[16] <= pin_irq[2] & irq2;
-   rq[17] <= ivto;
-   rq[18] <= pin_irq[3] & irq3;
-   //
-   // Only master CPU processes vectored interrupts
-	// Matrix accepts low level as active (asserted request)
-   //
-   rq[8]  <= ~(pin_virq & (pin_pa == 2'b00));
-   //
-   // Not used matrix inputs
-   //
-   rq[5]  <= 1'b0;
-   rq[6]  <= 1'b0;
-   rq[7]  <= 1'b0;
-   //
-   // VE timer interrupt
-   //
-   rq[19] <= tve_irq;
+	if(pin_ce_p) begin
+		rq[0]  <= psw[10];
+		rq[1]  <= plir[0];   // pli4r
+		rq[2]  <= psw[11];
+		rq[3]  <= uop;
+		rq[4]  <= psw[7];
+		rq[9]  <= qbto;
+		rq[10] <= reg_err[0];
+		rq[11] <= pin_aclo & aclo;
+		rq[12] <= reg_csr[2];
+		rq[13] <= ~pin_aclo & acok;
+		rq[14] <= pin_irq[1];
+		rq[15] <= psw[4];
+		rq[16] <= pin_irq[2] & irq2;
+		rq[17] <= ivto;
+		rq[18] <= pin_irq[3] & irq3;
+		//
+		// Only master CPU processes vectored interrupts
+		// Matrix accepts low level as active (asserted request)
+		//
+		rq[8]  <= ~(pin_virq & (pin_pa == 2'b00));
+		//
+		// Not used matrix inputs
+		//
+		rq[5]  <= 1'b0;
+		rq[6]  <= 1'b0;
+		rq[7]  <= 1'b0;
+		//
+		// VE timer interrupt
+		//
+		rq[19] <= tve_irq;
+	end
 end
 
 //
@@ -1002,23 +1043,26 @@ assign exc_err2 = plm1x_hl & ~plr[26];
 assign exc_err3 = plm1x_hl & ~plr[28];
 assign exc_err7 = plm1x_hl & ~plr[30];
 
-always @(posedge pin_clk_p or posedge reset)
+always @(posedge pin_clk or posedge reset)
 begin
    if (reset)
       plir[0] <= 1'b0;
-   else
+   else if(pin_ce_p) begin
       if (pli_stb)
          plir[0] <= pli[4];
+	end
 end			
 
-always @(posedge pin_clk_p)
+always @(posedge pin_clk)
 begin
-   if (pli_stb)
-   begin
-      plir[1] <= pli[6];
-      plir[2] <= pli[8];
-      plir[3] <= pli[10];
-   end
+	if(pin_ce_p) begin
+		if (pli_stb)
+		begin
+			plir[1] <= pli[6];
+			plir[2] <= pli[8];
+			plir[3] <= pli[10];
+		end
+	end
 end
 //
 // Detector's reset
@@ -1031,90 +1075,99 @@ assign tve_ack  = plm1x_hl & ~plr[27] &  plir[3] & ~plir[2] &  plir[1];
 //
 // ACLO edge detectors
 //
-always @(posedge pin_clk_p)
+always @(posedge pin_clk)
 begin
-   if (reset | aclo_ack)
-      aclo <= 1'b0;
-	else
-      if (~pin_aclo)
-         aclo <= 1'b1;
+	if(pin_ce_p) begin
+		if (reset | aclo_ack)
+			aclo <= 1'b0;
+		else
+			if (~pin_aclo)
+				aclo <= 1'b1;
 			
-	if (pin_dclo | aclo_ack)
-      acok <= 1'b0;
-	else
-      if (pin_aclo)
-         acok <= 1'b1;
+		if (pin_dclo | aclo_ack)
+			acok <= 1'b0;
+		else
+			if (pin_aclo)
+				acok <= 1'b1;
+	end
 end
 //
 // IRQ2 and IRQ3 falling edge detectors
 // Also resettable by internal INIT
 //
-always @(posedge pin_clk_p)
+always @(posedge pin_clk)
 begin
-   if (pin_init_out | pin_init_in)
-   begin
-      irq2 <= 1'b0;
-      irq3 <= 1'b0;
-   end
-   else
-   begin
-      if (irq2_ack)
-         irq2 <= 1'b0;
-      else
-         if (~pin_irq[2])
-            irq2 <= 1'b1;
+	if(pin_ce_p) begin
+		if (pin_init_out | pin_init_in)
+		begin
+			irq2 <= 1'b0;
+			irq3 <= 1'b0;
+		end
+		else
+		begin
+			if (irq2_ack)
+				irq2 <= 1'b0;
+			else
+				if (~pin_irq[2])
+					irq2 <= 1'b1;
 
-      if (irq3_ack)
-         irq3 <= 1'b0;
-      else
-         if (~pin_irq[3])
-            irq3 <= 1'b1;
-   end
+			if (irq3_ack)
+				irq3 <= 1'b0;
+			else
+				if (~pin_irq[3])
+					irq3 <= 1'b1;
+		end
+	end
 end
 //
 // Error exception latches
 //
-always @(posedge pin_clk_p)
+always @(posedge pin_clk)
 begin
-   if (reset | uop_ack)
-   begin
-      uop  <= 1'b0;
-      qbto <= 1'b0;
-      ivto <= 1'b0;
-   end
-   else
-   begin
-      if (exc_uop) uop <= 1'b1;
-      if (qbus_tovf & iako_out) ivto <= 1'b1;
-      if (qbus_tovf | exc_oat) qbto <= 1'b1;
-   end
+	if(pin_ce_p) begin
+		if (reset | uop_ack)
+		begin
+			uop  <= 1'b0;
+			qbto <= 1'b0;
+			ivto <= 1'b0;
+		end
+		else
+		begin
+			if (exc_uop) uop <= 1'b1;
+			if (qbus_tovf & iako_out) ivto <= 1'b1;
+			if (qbus_tovf | exc_oat) qbto <= 1'b1;
+		end
+	end
 end
 
 assign pli_req_rc = plm23_ichk | abort;
 assign pli_nrdy = pli_req;
 assign pli_stb  = pli_req;
 
-always @(posedge pin_clk_p)
+always @(posedge pin_clk)
 begin
-	pli_req <= pli_req_rc;
+	if(pin_ce_p) begin
+		pli_req <= pli_req_rc;
 
-   if (pli_stb)
-      vsel <= {pli[3], ~pli[2], pli[1], pli[0]};
-   else
-      if (plm1x)
-         vsel <= {plr[18], ~plr[20], ~plr[21], ~plr[22]};
+		if (pli_stb)
+			vsel <= {pli[3], ~pli[2], pli[1], pli[0]};
+		else
+			if (plm1x)
+				vsel <= {plr[18], ~plr[20], ~plr[21], ~plr[22]};
+	end
 end
 
-always @(posedge pin_clk_p or posedge mjres)
+always @(posedge pin_clk or posedge mjres)
 begin
    if (mjres)
       iak_flag <= 1'b0;
-   else
+   else if(pin_ce_p) begin
 		if (din_done)
 			iak_flag <= 1'b0;
 		else
 		   if (plm_ena & (plr[28:25] == 4'b0010) & (plr[11] | (plr[13] & ~plr[14])) & (vsel == 4'b1111))
 				iak_flag <= 1'b1;
+	end
 end
 
 //______________________________________________________________________________
@@ -1125,31 +1178,35 @@ assign mjres_rc = reset_rc | abort_rc;
 assign reset_rc = pin_dclo | (pin_aclo & ~init_out[0] & init_out[2]);
 assign abort_rc = (qbus_tovf | exc_oat | exc_uop | abort) & ~abort_tm & ~reset_rc;
 
-always @(posedge pin_clk_p)
+always @(posedge pin_clk)
 begin
-	reset	  	<= reset_rc;
-	mjres 	<= mjres_rc;
-	mjres_h 	<= mjres;
-	abort 	<= abort_rc;
-	abort_tm <= abort & ~reset_rc;
+	if(pin_ce_p) begin
+		reset	  	<= reset_rc;
+		mjres 	<= mjres_rc;
+		mjres_h 	<= mjres;
+		abort 	<= abort_rc;
+		abort_tm <= abort & ~reset_rc;
+	end
 end
 
-always @(posedge pin_clk_p)
+always @(posedge pin_clk)
 begin
-   if (reset_rc)
-      init_out[0] <= 1'b0;
-   else
-      if (plm1x_hl)
-      begin
-         if (~plr[23])
-            init_out[0] <= 1'b0;
-         else
-            if (~plr[10])
-               init_out[0] <= 1'b1;
-      end
+	if(pin_ce_p) begin
+		if (reset_rc)
+			init_out[0] <= 1'b0;
+		else
+			if (plm1x_hl)
+			begin
+				if (~plr[23])
+					init_out[0] <= 1'b0;
+				else
+					if (~plr[10])
+						init_out[0] <= 1'b1;
+			end
 
-   init_out[1] <= init_out[0];
-   init_out[2] <= init_out[1];
+		init_out[1] <= init_out[0];
+		init_out[2] <= init_out[1];
+	end
 end
 
 //______________________________________________________________________________
@@ -1169,10 +1226,12 @@ assign plm23_fc[0] = plm_ena_fc & (plm[3:1] == 3'b001);	// 	no			yes		 no			RTT 
 assign plm23_fc[1] = plm_ena_fc & (plm[3:1] == 3'b011);	// 	yes		yes		 yes			usual IR fetch
 assign plm23_fc[2] = plm_ena_fc & (plm[3:1] == 3'b101);	// 	yes		no			 no			WAIT opcode, check irq only
 assign plm23_fc[3] = plm_ena_fc & (plm[3:1] == 3'b111);	// 	yes		yes		 no			~RTT opcode, wait fetch completion
-always @(posedge pin_clk_n)
+always @(posedge pin_clk)
 begin
-	plm23_wait 	<= plm23_fc[0] | plm23_fc[3];
-	plm23_ichk	<= plm23_fc[1] | plm23_fc[2] | plm23_fc[3];
+	if(pin_ce_n) begin
+		plm23_wait 	<= plm23_fc[0] | plm23_fc[3];
+		plm23_ichk	<= plm23_fc[1] | plm23_fc[2] | plm23_fc[3];
+	end
 end
 
 assign plop[0] = ~plr[22] & ~plr[21] & ~plr[4];	// 000
@@ -1184,61 +1243,67 @@ assign plop[5] =  plr[22] & ~plr[21] &  plr[4];	// 101
 assign plop[6] =  plr[22] &  plr[21] & ~plr[4];	// 110
 assign plop[7] =  plr[22] &  plr[21] &  plr[4];	// 111
 
-always @(posedge pin_clk_n)
+always @(posedge pin_clk)
 begin
-	plm1x		<= plm1x_fc;
-	plm2x		<= plm2x_fc;
-	plm1x_hl <= plm1x;
+	if(pin_ce_n) begin
+		plm1x		<= plm1x_fc;
+		plm2x		<= plm2x_fc;
+		plm1x_hl <= plm1x;
 
-	if (plm_ena)
-	begin
-		psw_stb  <= ~plop[0] & ~plop[2] & ~plop[7];
-      psw_stbc <= ~plop[0] & ~plop[1] & ~plop[2] & ~plop[3] & ~plop[7];
-      mj_stb1  <= (plop[7] & ir_stb2) | (~plop[1] & ~plop[5] & ~plop[7]);
-      mj_stb2  <= (plop[7] & ir_stb2) | (~plop[1] & ~plop[5] & ~plop[7] & ~plop[3]);
-      psw_mj   <=  plop[7] & ir_stb2;
+		if (plm_ena)
+		begin
+			psw_stb  <= ~plop[0] & ~plop[2] & ~plop[7];
+			psw_stbc <= ~plop[0] & ~plop[1] & ~plop[2] & ~plop[3] & ~plop[7];
+			mj_stb1  <= (plop[7] & ir_stb2) | (~plop[1] & ~plop[5] & ~plop[7]);
+			mj_stb2  <= (plop[7] & ir_stb2) | (~plop[1] & ~plop[5] & ~plop[7] & ~plop[3]);
+			psw_mj   <=  plop[7] & ir_stb2;
+		end
 	end
 end
 
 //
 // Instruction register
 //
-always @(posedge pin_clk_p)
+always @(posedge pin_clk)
 begin
-   if (ir_stb1) ira <= wb_cpu_dat_i;
-   if (ir_stb2)
-		if (ir_stb1)
-			ir <= wb_cpu_dat_i;
-		else
-			ir <= ira;
+	if(pin_ce_p) begin 
+		if (ir_stb1) ira <= wb_cpu_dat_i;
+		if (ir_stb2)
+			if (ir_stb1)
+				ir <= wb_cpu_dat_i;
+			else
+				ir <= ira;
+	end
 end
 
 //______________________________________________________________________________
 //
-always @(posedge pin_clk_n)
+always @(posedge pin_clk)
 begin
-   if (plm_ena_fc) plr <= plm;
+   if(pin_ce_n) if (plm_ena_fc) plr <= plm;
 end
 
-always @(posedge pin_clk_p)
+always @(posedge pin_clk)
 begin
    //
    // Other bits have no reset facility
    //
-   if (plm_stb_rc)
-   begin
-		//
-		// Some of plm is not used here (microcode address directly uses plx instead)
-		//
-		plm <= plx;
-   end
+	if(pin_ce_p) begin
+		if (plm_stb_rc)
+		begin
+			//
+			// Some of plm is not used here (microcode address directly uses plx instead)
+			//
+			plm <= plx;
+		end
+	end
 end
 
 //______________________________________________________________________________
 //
 // Microcode register
 //
-always @(posedge pin_clk_p or posedge abort)
+always @(posedge pin_clk or posedge abort)
 begin
    //
    // The least bit is reset by abort
@@ -1246,16 +1311,16 @@ begin
    //
    if (abort)
       mj[0] <= 1'b0;
-   else
+   else if(pin_ce_p) begin
       if (reset)
          mj[0] <= 1'b1;
       else
          if (plm_stb_rc)
             mj[0] <= ~plx[29];
+	end
 end				
 
-
-always @(posedge pin_clk_p or posedge mjres)
+always @(posedge pin_clk or posedge mjres)
 begin
    //
    // Least bits are produced directly from main matrix
@@ -1263,7 +1328,7 @@ begin
    //
 	if (mjres)
       mj[6:1] <= 6'b111111;
-	else
+	else if(pin_ce_p) begin
 		if (plm_stb_rc)
 		begin
 			mj[1] <= ~plx[24];
@@ -1273,48 +1338,54 @@ begin
          mj[5] <=  plx[5];
          mj[6] <= ~plx[0];		
 		end
+	end
 end
 				
-always @(posedge pin_clk_p)
+always @(posedge pin_clk)
 begin
-	if (ustb1_hl)
-	begin
-		if (mj_stb1)
+	if(pin_ce_p) begin
+		if (ustb1_hl)
 		begin
-			mj[11] <= psw[4];
-			mj[10:8] <= psw_mj ? psw[3:1] : freg[3:1];
+			if (mj_stb1)
+			begin
+				mj[11] <= psw[4];
+				mj[10:8] <= psw_mj ? psw[3:1] : freg[3:1];
+			end
+			if (mj_stb2)
+				mj[7]  <= psw_mj ? psw[0] : freg[0];
 		end
-		if (mj_stb2)
-			mj[7]  <= psw_mj ? psw[0] : freg[0];
 	end
 end
 
-always @(posedge pin_clk_p or posedge mjres)
+always @(posedge pin_clk or posedge mjres)
 begin
    //
    // Bits 14:12 poll the interrupt controller state
    //
    if (mjres)
       mj[14:12] <= 3'b000;
-   else
+   else if(pin_ce_p) begin
       if (pli_stb)
          mj[14:12] <= {~pli[5], ~pli[7], pli[9]};
       else
          if (plm1x)
             mj[14:12] <= {~plr[14], plr[16], ~plr[17]};
+	end
 end
 
 //______________________________________________________________________________
 //
 // ALU result flags and PSW
 //
-always @(posedge pin_clk_n)
+always @(posedge pin_clk)
 begin
-	if (au_alsl)
-		freg <= flag;
+	if(pin_ce_n) begin
+		if (au_alsl)
+			freg <= flag;
+	end
 end
 
-always @(posedge pin_clk_n or posedge reset)
+always @(posedge pin_clk or posedge reset)
 begin
 	//
 	// Start microcode correctly sets the PSW
@@ -1327,7 +1398,7 @@ begin
 	if (reset)
       psw[15:0] <= {6'o00, pin_pa[1:0], 8'o000};
 	else
-	begin
+	if(pin_ce_n) begin
 		if (au_alsl & au_pstbx)
 			psw[7:0] <= x[7:0];
 		else
@@ -1362,40 +1433,42 @@ end
 //
 // ALU general purpose registers
 //
-assign xr = VM1_CORE_REG_USES_RAM ? xr_rm : xr_ff;
-assign yr = VM1_CORE_REG_USES_RAM ? yr_rm : yr_ff;
 
+`ifdef VM1_CORE_REG_USES_RAM
 //
 // Implement the Register File with library RAM module
 //
 vm1_reg_ram vreg_rm(
-	.clk_p(pin_clk_p),
-	.clk_n(pin_clk_n),
+	.clk(pin_clk),
+	.ce_p(pin_ce_p),
+	.ce_n(pin_ce_n),
 	.reset(reset),
 	.plr(plr),
 	.xbus_in(x),
-	.xbus_out(xr_rm),
-	.ybus_out(yr_rm),
+	.xbus_out(xr),
+	.ybus_out(yr),
 	.wstbl(au_alsl),
 	.wstbh(au_alsh),
 	.ireg(ir),
 	.vsel(vsel),
 	.pa(pin_pa),
 	.carry(psw[0]));
-	
+
+`else
 //
 // Implement the Register File with Flip-Flops array
 // The constant generator can be built in the File
 // in some implementations
 //
 vm1_reg_ff vreg_ff(
-	.clk_p(pin_clk_p),
-	.clk_n(pin_clk_n),
+	.clk(pin_clk),
+	.ce_p(pin_ce_p),
+	.ce_n(pin_ce_n),
 	.reset(reset),
 	.plr(plr),
 	.xbus_in(x),
-	.xbus_out(xr_ff),
-	.ybus_out(yr_ff),
+	.xbus_out(xr),
+	.ybus_out(yr),
 	.wstbl(au_alsl),
 	.wstbh(au_alsh),
 	.ireg(ir),
@@ -1403,13 +1476,15 @@ vm1_reg_ff vreg_ff(
 	.pa(pin_pa),
 	.carry(psw[0]));
 
+`endif
+
 assign au_pswy = (plr[28:25] == 4'b1000) & ~plr[11] & ~plr[13];
 assign au_qsy  = (plr[28:25] == 4'b0000) & ~plr[11] & ~plr[13];
 assign au_pswx = (plr[33:30] == 4'b1000);
 assign au_qsx  = (plr[33:30] == 4'b0000);
 
-always @(posedge pin_clk_n) au_alsl <= alu_busy_rp & ustb_h;
-always @(posedge pin_clk_n) au_alsh <= alu_busy_rp & ustb_h & plr[18];
+always @(posedge pin_clk) if(pin_ce_n) au_alsl <= alu_busy_rp & ustb_h;
+always @(posedge pin_clk) if(pin_ce_n) au_alsh <= alu_busy_rp & ustb_h & plr[18];
 
 assign au_is0  = ~(plr[13] & plr[14] & plr[25] & plr[26] & ~plr[27]);
 assign au_is1  =  (plr[13] & plr[14] & plr[25] & plr[26] & ~plr[27]);
@@ -1430,12 +1505,14 @@ assign au_pstbx = (plr[33:30] == 4'b1000) & plr[20];
 //
 assign au_astb  = au_astb_xa | (ustb & au_astb_xu);
 assign au_qstbx = au_qstb_xa | (ustb & au_qstb_xu);
-always @(posedge pin_clk_n)
+always @(posedge pin_clk)
 begin
-	au_astb_xa	<= alu_busy_rp & ustb_h & ~(~plr[14] & plr[13]) & ~plr[23] & (plr[7] | plr[8]);
-	au_qstb_xa	<= alu_busy_rp & ustb_h & ~(~plr[14] & plr[13]) & ~plr[23] & ~plr[7] & ~plr[8];
-	au_astb_xu	<= (~plr[14] & plr[13]) & ~plr[23] & (plr[7] | plr[8]);
-	au_qstb_xu	<= (~plr[14] & plr[13]) & ~plr[23] & ~plr[7] & ~plr[8];
+	if(pin_ce_n) begin
+		au_astb_xa	<= alu_busy_rp & ustb_h & ~(~plr[14] & plr[13]) & ~plr[23] & (plr[7] | plr[8]);
+		au_qstb_xa	<= alu_busy_rp & ustb_h & ~(~plr[14] & plr[13]) & ~plr[23] & ~plr[7] & ~plr[8];
+		au_astb_xu	<= (~plr[14] & plr[13]) & ~plr[23] & (plr[7] | plr[8]);
+		au_qstb_xu	<= (~plr[14] & plr[13]) & ~plr[23] & ~plr[7] & ~plr[8];
+	end
 end
 //
 // X bus (12 entries)
@@ -1477,33 +1554,39 @@ assign y[15:0]	= ~(yr
 // Note: pin_clk_n has been changed to pin_clk_p to provide
 // valid data before nDOUT falling edge, but it reduced the Fmax
 //
-always @(posedge pin_clk_p)
+always @(posedge pin_clk)
 begin
-   if (au_qstbx)
-      qreg[7:0] <= x[7:0];
-   else
-      if (au_qstbd)
-         qreg[7:0] <= (au_ta0 ? wb_cpu_dat_i[15:8] : wb_cpu_dat_i[7:0]);
+	if(pin_ce_p) begin
+		if (au_qstbx)
+			qreg[7:0] <= x[7:0];
+		else
+			if (au_qstbd)
+				qreg[7:0] <= (au_ta0 ? wb_cpu_dat_i[15:8] : wb_cpu_dat_i[7:0]);
 
-   if (au_qstbx)
-      qreg[15:8] <= x[15:8];
-   else
-      if (au_qstbd)
-         qreg[15:8] <= wb_cpu_dat_i[15:8];
+		if (au_qstbx)
+			qreg[15:8] <= x[15:8];
+		else
+			if (au_qstbd)
+				qreg[15:8] <= wb_cpu_dat_i[15:8];
+	end
 end
 
-always @(posedge pin_clk_n)
+always @(posedge pin_clk)
 begin
-   if (au_astb)
-      areg <= x;
+	if(pin_ce_n) begin
+		if (au_astb)
+			areg <= x;
+	end
 end
 //
 // Transaction address low bit latch
 //
-always @(posedge pin_clk_p)
+always @(posedge pin_clk)
 begin
-	if (sync_stb) 
-		au_ta0 <= areg[0] & plrt[6];
+	if(pin_ce_p) begin
+		if (sync_stb) 
+			au_ta0 <= areg[0] & plrt[6];
+	end
 end
 //______________________________________________________________________________
 //
@@ -1513,14 +1596,16 @@ assign nx  = alu_x ? ~xreg : xreg;
 //
 // ALU input parameters (from X and Y buses) registers
 //
-always @(posedge pin_clk_n)
+always @(posedge pin_clk)
 begin
-   if (au_is0)
-      xreg[15:0] <= x[15:0];
-   else
-      if (au_is1)
-         xreg[15:0] <= {x[7:0], x[15:8]};
-   yreg <= y;
+	if(pin_ce_n) begin
+		if (au_is0)
+			xreg[15:0] <= x[15:0];
+		else
+			if (au_is1)
+				xreg[15:0] <= {x[7:0], x[15:8]};
+		yreg <= y;
+	end
 end
 //
 // ALU controls
@@ -1551,15 +1636,17 @@ assign alu_e_fc   = (~plr[13] & plr[14]) | (~plr[16] & plr[17]);
 assign alu_x_fc   =  plr[16] & ~plr[17] & ~alu_e_fc;
 assign alu_s_fc   =  ~plr[13] | ~plr[14] | (plr[25] & plr[26]);
 
-always @(posedge pin_clk_n)
+always @(posedge pin_clk)
 begin
-	cl	   <= cl_fc;
-	alu_b	<= alu_b_fc;
-	alu_c <= alu_c_fc;
-	alu_d <= alu_d_fc;
-	alu_e <= alu_e_fc;
-	alu_x <= alu_x_fc;
-	alu_s <= alu_s_fc;
+	if(pin_ce_n) begin
+		cl	   <= cl_fc;
+		alu_b	<= alu_b_fc;
+		alu_c <= alu_c_fc;
+		alu_d <= alu_d_fc;
+		alu_e <= alu_e_fc;
+		alu_x <= alu_x_fc;
+		alu_s <= alu_s_fc;
+	end
 end
 //
 // ALU selectable function
@@ -1718,8 +1805,9 @@ endmodule
 //
 module vm1_reg_ff
 (
-	input				clk_p,		//
-	input				clk_n,		//
+	input				clk,  		//
+	input				ce_p, 		//
+	input				ce_n, 		//
 	input				reset,		//
 	input	 [33:0]  plr,			// control matrix
    input  [15:0]  xbus_in,    // X bus input
@@ -1742,15 +1830,17 @@ reg   [15:0]   gpr[0:13];     // register array
 reg	[3:0]		xadr;
 reg	[3:0]		yadr;
 
-always @(posedge clk_n)
+always @(posedge clk)
 begin
-	xadr <= plr[33:30];
-	yadr <= plr[28:25];
+	if(ce_n) begin
+		xadr <= plr[33:30];
+		yadr <= plr[28:25];
+	end
 end
 
-always @(posedge clk_n)
+always @(posedge clk)
 begin
-	vc_vreg <= vsel;
+	if(ce_n) vc_vreg <= vsel;
 end
 assign vc_vsel = (plr[28:25] == 4'b0010) & ((plr[13] & ~plr[14]) | plr[11]);
 assign vc_csel = (plr[28:25] != 4'b0010) & ((plr[13] & ~plr[14]) | plr[11]);
@@ -1844,42 +1934,44 @@ assign ybus_out = (rs0[0]  ? gpr[0]  : 16'o000000)
 					|  (vc_vsel ? vc_vcd  : 16'o000000)
 					|  (vc_csel ? vc_vcd  : 16'o000000);
 
-always @(posedge clk_n)
+always @(posedge clk)
 begin
-   if (wstbl)
-   begin
-      if (rsw[0])  gpr[0][7:0]  <= xbus_in[7:0];
-      if (rsw[1])  gpr[1][7:0]  <= xbus_in[7:0];
-      if (rsw[2])  gpr[2][7:0]  <= xbus_in[7:0];
-      if (rsw[3])  gpr[3][7:0]  <= xbus_in[7:0];
-      if (rsw[4])  gpr[4][7:0]  <= xbus_in[7:0];
-      if (rsw[5])  gpr[5][7:0]  <= xbus_in[7:0];
-      if (rsw[6])  gpr[6][7:0]  <= xbus_in[7:0];
-      if (rsw[7])  gpr[7][7:0]  <= xbus_in[7:0];
-      if (rsw[8])  gpr[8][7:0]  <= xbus_in[7:0];
-      if (rsw[9])  gpr[9][7:0]  <= xbus_in[7:0];
-      if (rsw[10]) gpr[10][7:0] <= xbus_in[7:0];
-      if (rsw[11]) gpr[11][7:0] <= xbus_in[7:0];
-      if (rsw[12]) gpr[12][7:0] <= xbus_in[7:0];
-      if (rsw[13]) gpr[13][7:0] <= xbus_in[7:0];
-   end
-   if (wstbh)
-   begin
-      if (rsw[0])  gpr[0][15:8]  <= xbus_in[15:8];
-      if (rsw[1])  gpr[1][15:8]  <= xbus_in[15:8];
-      if (rsw[2])  gpr[2][15:8]  <= xbus_in[15:8];
-      if (rsw[3])  gpr[3][15:8]  <= xbus_in[15:8];
-      if (rsw[4])  gpr[4][15:8]  <= xbus_in[15:8];
-      if (rsw[5])  gpr[5][15:8]  <= xbus_in[15:8];
-      if (rsw[6])  gpr[6][15:8]  <= xbus_in[15:8];
-      if (rsw[7])  gpr[7][15:8]  <= xbus_in[15:8];
-      if (rsw[8])  gpr[8][15:8]  <= xbus_in[15:8];
-      if (rsw[9])  gpr[9][15:8]  <= xbus_in[15:8];
-      if (rsw[10]) gpr[10][15:8] <= xbus_in[15:8];
-      if (rsw[11]) gpr[11][15:8] <= xbus_in[15:8];
-      if (rsw[12]) gpr[12][15:8] <= xbus_in[15:8];
-      if (rsw[13]) gpr[13][15:8] <= xbus_in[15:8];
-   end
+	if(ce_n) begin
+		if (wstbl)
+		begin
+			if (rsw[0])  gpr[0][7:0]  <= xbus_in[7:0];
+			if (rsw[1])  gpr[1][7:0]  <= xbus_in[7:0];
+			if (rsw[2])  gpr[2][7:0]  <= xbus_in[7:0];
+			if (rsw[3])  gpr[3][7:0]  <= xbus_in[7:0];
+			if (rsw[4])  gpr[4][7:0]  <= xbus_in[7:0];
+			if (rsw[5])  gpr[5][7:0]  <= xbus_in[7:0];
+			if (rsw[6])  gpr[6][7:0]  <= xbus_in[7:0];
+			if (rsw[7])  gpr[7][7:0]  <= xbus_in[7:0];
+			if (rsw[8])  gpr[8][7:0]  <= xbus_in[7:0];
+			if (rsw[9])  gpr[9][7:0]  <= xbus_in[7:0];
+			if (rsw[10]) gpr[10][7:0] <= xbus_in[7:0];
+			if (rsw[11]) gpr[11][7:0] <= xbus_in[7:0];
+			if (rsw[12]) gpr[12][7:0] <= xbus_in[7:0];
+			if (rsw[13]) gpr[13][7:0] <= xbus_in[7:0];
+		end
+		if (wstbh)
+		begin
+			if (rsw[0])  gpr[0][15:8]  <= xbus_in[15:8];
+			if (rsw[1])  gpr[1][15:8]  <= xbus_in[15:8];
+			if (rsw[2])  gpr[2][15:8]  <= xbus_in[15:8];
+			if (rsw[3])  gpr[3][15:8]  <= xbus_in[15:8];
+			if (rsw[4])  gpr[4][15:8]  <= xbus_in[15:8];
+			if (rsw[5])  gpr[5][15:8]  <= xbus_in[15:8];
+			if (rsw[6])  gpr[6][15:8]  <= xbus_in[15:8];
+			if (rsw[7])  gpr[7][15:8]  <= xbus_in[15:8];
+			if (rsw[8])  gpr[8][15:8]  <= xbus_in[15:8];
+			if (rsw[9])  gpr[9][15:8]  <= xbus_in[15:8];
+			if (rsw[10]) gpr[10][15:8] <= xbus_in[15:8];
+			if (rsw[11]) gpr[11][15:8] <= xbus_in[15:8];
+			if (rsw[12]) gpr[12][15:8] <= xbus_in[15:8];
+			if (rsw[13]) gpr[13][15:8] <= xbus_in[15:8];
+		end
+	end
 end
 
 // synopsys translate_off
@@ -1910,8 +2002,9 @@ endmodule
 //
 module vm1_reg_ram
 (
-	input				clk_p,		//
-	input				clk_n,		//
+	input				clk,  		//
+	input				ce_p,	   	//
+	input				ce_n, 		//
 	input				reset,		//
 	input	 [33:0]  plr,			// control matrix
    input  [15:0]  xbus_in,    // X bus input
@@ -1932,9 +2025,9 @@ wire	[5:0]		xadr;
 wire	[5:0]		yadr;
 wire 				wren;
 
-always @(posedge clk_n)
+always @(posedge clk)
 begin
-	vc_reg <= vsel;
+	if(ce_n) vc_reg <= vsel;
 end
 
 assign vc_vsel = (plr[28:25] == 4'b0010) & ((plr[13] & ~plr[14]) | plr[11]);
@@ -1949,7 +2042,7 @@ assign	yadr[4]   = vc_vsel;
 assign 	yadr[5]	 = vc_csel;
 
 vm1_aram	vm1_aram_reg(
-	.clock(clk_n),
+	.clock(clk),
 	.address_a(xadr),
 	.data_a(xbus_in),
 	.q_a(xbus_out),
