@@ -1,8 +1,9 @@
 
 
-module keyboard_wb
+module keyboard
 (
-	input         clk_bus,
+	input         clk_sys,
+	input         ce_cpu_p,
 
 	input  [15:0] bus_din,
 	output [15:0] bus_dout,
@@ -20,14 +21,18 @@ module keyboard_wb
 	output        virq_req274,
 	input         virq_ack274,
 
-	input         PS2_CLK,
-	input         PS2_DAT,
+	input         ps2_kbd_clk,
+	input         ps2_kbd_data,
 	output reg    key_down,
 	output        key_stop,
 	output        key_reset,
 	output reg    key_color,
 	output reg    key_bw
 );
+
+reg [11:0] shift_reg;
+wire[11:0] kdata     = {ps2_kbd_data,shift_reg[11:1]};
+wire [7:0] keyb_data = kdata[9:2];
 
 wire [1:0] ena;
 reg        ack;
@@ -46,7 +51,7 @@ wire stb662 = bus_stb && sel662;
 wire valid  = sel660 | sel662;
 
 assign bus_ack = bus_stb & valid & ack;
-always @ (posedge clk_bus) ack <= bus_stb;
+always @ (posedge clk_sys) if(ce_cpu_p) ack <= bus_stb;
 
 reg req60, req274;
 assign virq_req60  = req60;
@@ -67,18 +72,6 @@ reg        state_reset;
 
 wire [6:0] decoded;
 wire       autoar2;
-wire [7:0] keyb_data;
-wire       keyb_valid;
-
-ps2_intf ps2(
-	clk_bus,
-	1, //BK reset may not reset low-level driver!
-
-	PS2_CLK,
-	PS2_DAT,
-	keyb_data,
-	keyb_valid
-);
 
 reg  [8:0] keys[4:0] = '{default:0};
 kbd_transl kbd_transl(.shift(state_shift), .e0(keys[0][8]), .incode(keys[0][7:0]), .outcode(decoded), .autoar2(autoar2));
@@ -92,18 +85,21 @@ wire [6:0] ascii = state_ctrl ? {2'b00, decoded[4:0]} :
 
 wire [8:0] key_data = {e0, keyb_data};
 
-always @(posedge clk_bus) begin
+always @(posedge clk_sys) begin
 	reg old_stb660, old_stb662, old_ack60, old_ack274, old_bus_reset, key_change;
+	reg[3:0] prev_clk;
 
 	old_bus_reset <= bus_reset;
 	if(!old_bus_reset && bus_reset) begin
+		prev_clk    <= 0;
+		shift_reg   <= 'hFFF;
 		state_caps  <= 7'h00;
 		state_rus   <= 7'h20;
 		reg660[6]   <= 1;
 		reg660[7]   <= 0;
 		req60       <= 0;
 		req274      <= 0;
-	end else begin
+	end else if(ce_cpu_p) begin
 		if(state_stop) state_stop <= state_stop - 8'd1;
 
 		old_stb660 <= stb660;
@@ -128,51 +124,56 @@ always @(posedge clk_bus) begin
 
 		key_color <= 0;
 		key_bw    <= 0;
-		if (keyb_valid) begin
-			if (keyb_data == 8'HE0)
-				e0 <= 1;
-			else if (keyb_data == 8'HF0)
-				pressed <= 0;
-			else begin
-				casex(key_data)
-					9'H058: if(pressed) state_caps <= state_caps ^ 7'h20;
-					9'H059: state_shift <= pressed;
-					9'H012: state_shift <= pressed;
-					9'HX11: state_alt   <= pressed;
-					9'H114: state_ctrl  <= pressed;
-					8'H009: if(pressed) state_stop <= 40;
-					8'H078: {state_reset, key_color} <= {state_ctrl & pressed, ~state_ctrl & pressed};
-					9'H00c: key_bw <= pressed;
-					9'H007: ; // disable F12 handling
-					default: begin
-						if(pressed) begin
-							keys[4:1] <= keys[3:0];
-							keys[0]   <= key_data;
-						end else begin
-							if(key_data == keys[0]) begin
-								keys[3:0] <= keys[4:1];
-								keys[4]   <= 0;
-							end else if(key_data == keys[1]) begin
-								keys[3:1] <= keys[4:2];
-								keys[4]   <= 0;
-							end else if(key_data == keys[2]) begin
-								keys[3:2] <= keys[4:3];
-								keys[4]   <= 0;
-							end else if(key_data == keys[3]) begin
-								keys[3]   <= keys[4];
-								keys[4]   <= 0;
-							end else if(key_data == keys[4]) begin
-								keys[4]   <= 0;
+		
+		prev_clk <= {ps2_kbd_clk,prev_clk[3:1]};
+		if(prev_clk == 1) begin
+			if (kdata[11] & ^kdata[10:2] & (kdata[1:0] == 1)) begin
+				shift_reg <= 'hFFF;
+				if (keyb_data == 8'HE0)
+					e0 <= 1;
+				else if (keyb_data == 8'HF0)
+					pressed <= 0;
+				else begin
+					casex(key_data)
+						9'H058: if(pressed) state_caps <= state_caps ^ 7'h20;
+						9'H059: state_shift <= pressed;
+						9'H012: state_shift <= pressed;
+						9'HX11: state_alt   <= pressed;
+						9'H114: state_ctrl  <= pressed;
+						8'H009: if(pressed) state_stop <= 40;
+						8'H078: {state_reset, key_color} <= {state_ctrl & pressed, ~state_ctrl & pressed};
+						9'H00c: key_bw <= pressed;
+						9'H007: ; // disable F12 handling
+						default: begin
+							if(pressed) begin
+								keys[4:1] <= keys[3:0];
+								keys[0]   <= key_data;
+							end else begin
+								if(key_data == keys[0]) begin
+									keys[3:0] <= keys[4:1];
+									keys[4]   <= 0;
+								end else if(key_data == keys[1]) begin
+									keys[3:1] <= keys[4:2];
+									keys[4]   <= 0;
+								end else if(key_data == keys[2]) begin
+									keys[3:2] <= keys[4:3];
+									keys[4]   <= 0;
+								end else if(key_data == keys[3]) begin
+									keys[3]   <= keys[4];
+									keys[4]   <= 0;
+								end else if(key_data == keys[4]) begin
+									keys[4]   <= 0;
+								end
 							end
+							key_change <=1;
 						end
-						key_change <=1;
-					end
-				endcase
+					endcase
 
-				pressed <= 1;
-				e0 <= 0;
-         end
-      end
+					pressed <= 1;
+					e0 <= 0;
+				end
+			end else shift_reg <= kdata;
+		end
 
 		if(key_change) begin
 			key_change <= 0;

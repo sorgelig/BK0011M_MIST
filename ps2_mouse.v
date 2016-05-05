@@ -50,7 +50,7 @@ always @(posedge clk) begin
 		end
 		idle <= 0;
 	end else if(ps2_clk) idle <= idle + 1;
-	if(idle > 16000000) begin // 4 second to reset the bit counter.
+	if(idle > 384000000) begin // 4 second to reset the bit counter.
 		idle   <= 0;
 		bcount <= 0;
 	end
