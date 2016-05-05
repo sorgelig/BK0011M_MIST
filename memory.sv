@@ -19,7 +19,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>. 
 //
 
-module memory_wb 
+module memory 
 (
 	inout  [15:0] SDRAM_DQ,
 	output [12:0] SDRAM_A,
@@ -33,8 +33,12 @@ module memory_wb
 	output        SDRAM_CKE,
 
 	input         init,
-	input         clk_ram,
-	input         clk_037,
+	input         clk_sys,
+	input         ce_cpu_p,
+	input         ce_6mp,
+	input         ce_6mn,
+	input         turbo,
+
 	input         bk0010,
 	input         bk0010_stub,
 	input         disk_rom,
@@ -43,8 +47,6 @@ module memory_wb
 	input  [15:0] ext_mode,
 	input         cold_start,
 	input         mode_start,
-
-	input         clk_bus,
 
 	input  [15:0] bus_din,
 	output [15:0] bus_dout,
@@ -70,7 +72,7 @@ module memory_wb
 
 dpram vram
 (
-	.clock(clk_ram),
+	.clock(clk_sys),
 
 	.wraddress({scr1_we, ram_addr[13:1]}),
 	.byteena_a(ram_wtbt),
@@ -81,16 +83,18 @@ dpram vram
 	.q(vram_data)
 );
 
+wire ram_ready;
 sram ram
 (
 	.*,
-	.clk_sdram(clk_ram),	
+	.clk_sdram(clk_sys),	
 	.addr(ram_addr[24:1]),
 	.dout(ram_dout),
 	.din(ram_din),
 	.wtbt(ram_wtbt),
 	.we(ram_we),
-	.rd(ram_rd)
+	.rd(ram_rd),
+	.ready(ram_ready)
 );
 
 wire [15:0] ram_dout;
@@ -377,8 +381,10 @@ wire       ext_rom   = disk_rom && cold_addr && !bk0010_stub;
 reg [7:0] start_a16m   = 8'd0;
 reg [7:0] start_smk512 = 8'd0;
 reg [4:0] page_avail = 5'b00010;
-always @(posedge mem_copy_we) begin
-	if(!mem_copy_virt && mem_copy) begin
+always @(posedge clk_sys) begin
+	reg old_we;
+	old_we <= mem_copy_we;
+	if(~old_we & mem_copy_we & ~mem_copy_virt & mem_copy) begin
 		case({mem_copy_addr[24:14], 14'd0})
 			`ROM_P10: page_avail[0] <= (page_avail[0] || mem_copy_din);
 			`ROM_P11: page_avail[1] <= (page_avail[1] || mem_copy_din);
@@ -393,7 +399,11 @@ end
 
 reg [15:0] page_reg;
 wire sysreg_write = bus_stb & sysreg_sel & bus_we;
-always @(posedge sysreg_write) if(bus_din[11] && bus_wtbt[1]) page_reg <= bus_din;
+always @(posedge clk_sys) begin
+	reg old_write;
+	old_write <= sysreg_write;
+	if(~old_write & sysreg_write & bus_din[11] & bus_wtbt[1]) page_reg <= bus_din;
+end
 
 function [24:0] page2addr;
 	input [2:0] value;
@@ -462,29 +472,42 @@ wire [15:0] stub[4] = '{16'o10637, 16'o177670, 16'o207, 16'o0};
 assign bus_dout = (bus_sync & valid) ? ((bk0010_stub & (bus_addr[15:13] == 3'b101)) ? stub[bus_addr[2:1]] : ram_dout) : 16'd0;
 assign bus_ack  = vp037_ack | ext_ack;
 
-wire legacy_ram = (ram_addr < `RAM_EXT);
+wire legacy_ram = (ram_addr < `RAM_EXT) & !turbo;
 
 // VP1-037 contention
 wire vp037_ack = TRPLY & ~RASEL;
 
 wire dio = legacy_ram & valid & bus_stb;
-reg PC90, RASEL, TRPLY;
-always_latch if (RASEL) TRPLY = 1'b1; else if(~dio) TRPLY = 1'b0;
+reg RASEL, TRPLY;
+always_latch if(RASEL) TRPLY = 1'b1; else if(~dio) TRPLY = 1'b0;
 
-reg [2:0] PC;
-always @(negedge clk_037) begin
-	PC <= PC + 1'd1;
-	if(~PC[0]) PC90 <= PC[1];
+always @(posedge clk_sys) begin
+	reg [2:0] PC;
+	reg       PC90;
+
+	if(ce_6mn) begin
+		PC <= PC + 1'd1;
+		if(~PC[0]) PC90 <= PC[1];
+	end
+	if(ce_6mp) begin
+		if (PC90 & PC[1]) RASEL <= 0;
+			else if (PC90 & ~PC[1] & PC[2]) RASEL <= bus_sync & ~vp037_ack & dio;
+	end
 end
 
-always @(posedge clk_037) begin
-	if (PC90 & PC[1]) RASEL <= 0;
-		else if (PC90 & ~PC[1] & PC[2]) RASEL <= bus_sync & ~vp037_ack & dio;
+// ROM or Ext RAM or in-turbo ack
+reg  ext_ack;
+wire ext_req = ram_stb & !legacy_ram;
+always @(posedge clk_sys) begin
+	reg old_req, old_ready, ram_wait;
+	
+	if(~ext_req) {ext_ack, ram_wait} <= 0;
+	
+	old_req <= ext_req;
+	if(~old_req & ext_req) ram_wait  <= 1;
+	
+	old_ready <= ram_ready;
+	if(~old_ready & ram_ready & ram_wait) ext_ack <= 1;
 end
-
-// Ext RAM or ROM ack
-reg  ack;
-wire ext_ack = ram_stb & !legacy_ram & ack;
-always @(posedge clk_bus) ack <= bus_stb;
 
 endmodule
