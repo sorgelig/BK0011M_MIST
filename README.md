@@ -19,12 +19,12 @@ No contention model is used in turbo mode, thus speed is higher more than twice.
 ### Installation:
 Copy the *.rbf file at the root of the SD card. You can rename the file to core.rbf if you want the MiST to load it automatically at startup.
 
-Copy [bk0011m.rom](https://github.com/sorgelig/BK0011M/tree/master/releases) to root of SD card. There is another ROM image with A16M and SMK512 extensions disabled. Use it if you want standard FDD(and HDD) support.
+Copy [bk0011m.rom](https://github.com/sorgelig/BK0011M/tree/master/extra) to root of SD card. There is another ROM image with A16M and SMK512 extensions disabled. Use it if you want standard FDD(and HDD) support.
 
 
 For PAL mode (RGBS output) you need to put [mist.ini](https://github.com/sorgelig/ZX_Spectrum-128K_MIST/tree/master/releases/mist.ini) file to the root of SD card. Set the option **scandoubler_disable** for desired video output.
 
-There are couple disk images in [extra](https://github.com/sorgelig/BK0011M/tree/master/releases) folder with CSIDOS OS with complete ecosystem (viewer,text editor, music editor, debugger, etc.) written by me more than 20 years ago. Image also incudes some music and utils written by different people.
+There are couple disk images in [extra](https://github.com/sorgelig/BK0011M/tree/master/extra) folder with CSIDOS OS with complete ecosystem (viewer,text editor, music editor, debugger, etc.) written by me more than 20 years ago. Image also incudes some music and utils written by different people.
 
 *Most documents are in Russian languange.*
 
