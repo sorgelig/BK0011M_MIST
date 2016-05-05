@@ -2,7 +2,9 @@
 
 module video
 (
-	input         clk_pix, // Video clock (24 MHz)
+	input         clk_sys,
+	input         ce_12mp,
+	input         ce_12mn,
 
 	// Misc. signals
 	input         bk0010,
@@ -25,7 +27,6 @@ module video
 	input  [15:0] vram_data,
 
 	// CPU bus
-	input         clk_bus,
 	input  [15:0] bus_din,
 	output [15:0] bus_dout,
 	input  [15:0] bus_addr,
@@ -36,9 +37,6 @@ module video
 	output        bus_ack,
 	output        irq2
 );
-
-reg clk_12;
-always @(posedge clk_pix) clk_12 <= !clk_12;
 
 assign irq2 = irq & irq_en;
 reg irq = 1'b0;
@@ -54,42 +52,44 @@ reg  HSync;
 reg  VSync;
 wire CSync = HSync ^ VSync;
 
-always @(posedge clk_12) begin
-	hc <= hc + 1'd1;
-	if(hc == 767) begin 
-		hc <=0;
+always @(posedge clk_sys) begin
+	if(ce_12mp) begin
+		hc <= hc + 1'd1;
+		if(hc == 767) begin 
+			hc <=0;
 
-		vcr <= vcr + 1'd1;
-		if(vc == 279) vcr <= scroll;
+			vcr <= vcr + 1'd1;
+			if(vc == 279) vcr <= scroll;
 
-		vc <= vc + 1'd1;
-		if (vc == 319) vc <= 9'd0;
+			vc <= vc + 1'd1;
+			if (vc == 319) vc <= 9'd0;
+		end
+
+		if(hc == 593) begin
+			HSync <= 1;
+			if(vc == 276) VSync <= 1;
+			if(vc == 280) VSync <= 0;
+		end
+
+		if(hc == 649) begin
+			HSync <= 0;
+			if(vc == 256) irq <= 1;
+			if(vc == 000) irq <= 0;
+		end
 	end
 
-	if(hc == 593) begin
-		HSync <= 1;
-		if(vc == 276) VSync <= 1;
-		if(vc == 280) VSync <= 0;
-	end
-
-	if(hc == 649) begin
-		HSync <= 0;
-		if(vc == 256) irq <= 1;
-		if(vc == 000) irq <= 0;
+	if(ce_12mn) begin
+		dotm <= hc[0];
+		if(!hc[0]) begin
+			dots <= {2'b00, dots[15:2]};
+			if(!hc[9] && !(vc[8:6] & {1'b1, {2{~full_screen}}}) && !hc[3:1]) dots <= vram_data;
+		end
 	end
 end
 
 wire  [1:0] dotc = dots[1:0];
 reg  [15:0] dots;
 reg         dotm;
-
-always @(negedge clk_12) begin
-	dotm <= hc[0];
-	if(!hc[0]) begin
-		dots <= {2'b00, dots[15:2]};
-		if(!hc[9] && !(vc[8:6] & {1'b1, {2{~full_screen}}}) && !hc[3:1]) dots <= vram_data;
-	end
-end
 
 wire [15:0] palettes[16] = '{
 	16'h9420, 16'h9BD0, 16'hD640, 16'hB260,
@@ -107,10 +107,10 @@ wire [5:0] R_out;
 wire [5:0] G_out;
 wire [5:0] B_out;
 
-osd #(3'd4) osd
+osd #(10'd0, 10'd0, 3'd4) osd
 (
 	.*,
-	.clk_pix(clk_12),
+	.ce_pix(ce_12mp),
 	.R_in({3{R}}),
 	.G_in({6{G}}),
 	.B_in({6{B}})
@@ -124,7 +124,8 @@ wire [5:0] b_out;
 scandoubler scandoubler
 (
 	.*,
-	.clk_x2(clk_pix),
+	.ce_x2(ce_12mp | ce_12mn),
+	.ce_x1(ce_12mp),
 	.scanlines(2'b00),
 
 	.hs_in(HSync),
@@ -149,7 +150,11 @@ wire        full_screen = reg664[9];
 wire  [7:0] scroll      = reg664[7:0];
 
 reg color = 1;
-always @(posedge bw_switch) color <= ~color;
+always @(posedge clk_sys) begin
+	reg old_switch;
+	old_switch <= bw_switch;
+	if(~old_switch & bw_switch) color <= ~color;
+end
 
 assign bus_dout = sel664 ? reg664 : 16'd0;
 assign bus_ack  = bus_stb & (sel664 | sel662);
@@ -159,13 +164,19 @@ wire stb662 = bus_stb  && sel662;
 wire sel664 = bus_sync && (bus_addr[15:1] == (16'o177664 >> 1));
 wire stb664 = bus_stb  && sel664 && bus_we;
 
-always @(posedge stb664) {reg664[9], reg664[7:0]} <= {bus_din[9], bus_din[7:0]};
-always @(posedge stb662) reg662[15:14] <= bus_din[15:14];
-
 wire stb662c = stb662 | color_switch;
-always @(posedge stb662c) begin
-	if(sel662) reg662[11:8] <= bus_din[11:8];
-		else if(color) reg662[11:8] <= reg662[11:8] + 1'd1;
+
+always @(posedge clk_sys) begin
+	reg old_stb664, old_stb662, old_stb662c;
+	{old_stb664, old_stb662, old_stb662c} <= {stb664, stb662, stb662c};
+	
+	if(~old_stb664 & stb664) {reg664[9], reg664[7:0]} <= {bus_din[9], bus_din[7:0]};
+	if(~old_stb662 & stb662) reg662[15:14] <= bus_din[15:14];
+
+	if(~old_stb662c & stb662c) begin
+		if(sel662) reg662[11:8] <= bus_din[11:8];
+			else if(color) reg662[11:8] <= reg662[11:8] + 1'd1;
+	end
 end
 
 endmodule
