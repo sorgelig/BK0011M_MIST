@@ -22,114 +22,90 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
 
-module data_io (
-	// io controller spi interface
-	input         sck,
-	input         ss,
-	input         sdi,
+module data_io
+(
+	input             clk_sys,
 
-	output        downloading,   // signal indicating an active download
-   output  [4:0] index,         // menu index used to upload the file
-	 
-	// external ram interface
-	input         clk,
-	output        wr,
-	output [24:0] a,
-	output [15:0] d
+	input             SPI_SCK,
+	input             SPI_SS2,
+	input             SPI_DI,
+
+	output reg        ioctl_download = 0, // signal indicating an active download
+	output reg  [4:0] ioctl_index,        // menu index used to upload the file
+	output            ioctl_we,
+	output reg [24:0] ioctl_addr,
+	output reg [15:0] ioctl_dout
 );
 
-assign downloading = downloading_reg;
-assign d     = data;
-assign a     = {write_a[24:1], 1'b0};
-assign index = idx;
-assign wr = (wrx[1] | wrx[2]);
-
-// *********************************************************************************
-// spi client
-// *********************************************************************************
-
-// this core supports only the display related OSD commands
-// of the minimig
-reg [6:0]  sbuf;
-reg [7:0]  cmd;
-reg [15:0] data;
-reg [4:0]  cnt;
-reg [4:0]  idx;
-reg [2:0]  wrx;
-
-reg [24:0] addr;
-reg [24:0] write_a;
-reg rclk = 1'b0;
-reg next = 1'b0;
+assign     ioctl_we = (wrx[1] | wrx[2]);
+reg        rclk = 0;
+reg  [2:0] wrx;
+always@(posedge clk_sys) wrx <= {wrx[1:0], rclk};
 
 localparam UIO_FILE_TX      = 8'h53;
 localparam UIO_FILE_TX_DAT  = 8'h54;
 localparam UIO_FILE_INDEX   = 8'h55;
 
-reg downloading_reg = 1'b0;
+always@(posedge SPI_SCK, posedge SPI_SS2) begin
+	reg  [6:0] sbuf;
+	reg  [7:0] cmd;
+	reg  [4:0] cnt;
+	reg [24:0] addr;
+	reg  [7:0] data;
+	reg        next = 0;
 
-// data_io has its own SPI interface to the io controller
-always@(posedge sck, posedge ss) begin
-	if(ss == 1'b1)
-		cnt <= 5'd0;
+	if(SPI_SS2) cnt <= 0;
 	else begin
-		rclk <= 1'b0;
-		next <= 1'b0;
+		rclk <= 0;
+		next <= 0;
 
 		// don't shift in last bit. It is evaluated directly
 		// when writing to ram
-		if(cnt != 15)
-			sbuf <= { sbuf[5:0], sdi};
+		if(cnt != 15) sbuf <= {sbuf[5:0], SPI_DI};
 
 		// increase target address after write
-		if(next)
-			addr <= addr + 25'd1;
-	 
+		if(next) addr <= addr + 1'd1;
+
 		// count 0-7 8-15 8-15 ... 
-		if(cnt < 15) 	cnt <= cnt + 4'd1;
-		else				cnt <= 4'd8;
+		if(cnt < 15) cnt <= cnt + 1'd1;
+			else      cnt <= 8;
 
 		// finished command byte
-      if(cnt == 7)
-			cmd <= {sbuf, sdi};
+      if(cnt == 7) cmd <= {sbuf, SPI_DI};
 
 		// prepare/end transmission
 		if((cmd == UIO_FILE_TX) && (cnt == 15)) begin
 			// prepare 
-			if(sdi) begin
-				case(idx)
+			if(SPI_DI) begin
+				case(ioctl_index)
 							0: addr <= 25'h0E0000;
 							1: addr <= 25'h100000;
 					default: addr <= 25'h120000;
 				endcase
-				downloading_reg <= 1'b1;
+				ioctl_download <= 1;
 			end else begin
-				downloading_reg <= 1'b0;
-				write_a <= (addr + 25'd1);
+				ioctl_download <= 0;
+				ioctl_addr <= {addr[24:1] + 1'b1, 1'b0};
 			end
 		end
 
 		// command 0x54: UIO_FILE_TX
 		if((cmd == UIO_FILE_TX_DAT) && (cnt == 15)) begin
-			write_a <= addr;
 
-			if(addr[0]) data[15:8] <= {sbuf, sdi};
-				else data[7:0] <= {sbuf, sdi};
+			next <= 1;
 
-			if(addr[0]) rclk <= 1'b1; // strobe every second byte
-			next <= 1'b1;
+			if(addr[0]) begin
+				ioctl_dout <= {sbuf, SPI_DI, data};
+				ioctl_addr <= {addr[24:1], 1'b0};
+				rclk       <= 1;
+			end else begin
+				data       <= {sbuf, SPI_DI};
+			end
 		end
 
       // expose file (menu) index
-      if((cmd == UIO_FILE_INDEX) && (cnt == 15))
-			idx <= {sbuf[3:0], sdi};
+      if((cmd == UIO_FILE_INDEX) && (cnt == 15)) ioctl_index <= {sbuf[3:0], SPI_DI};
 	end
-end
-
-always@(posedge clk) begin
-	wrx[0] <= rclk;
-	wrx[1] <= wrx[0];
-	wrx[2] <= wrx[1];
 end
 
 endmodule
