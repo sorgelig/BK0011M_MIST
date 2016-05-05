@@ -58,14 +58,11 @@ set_location_assignment PIN_136 -to VGA_VS
 set_location_assignment PIN_119 -to VGA_HS
 set_location_assignment PIN_65 -to AUDIO_L
 set_location_assignment PIN_80 -to AUDIO_R
-set_location_assignment PIN_46 -to UART_TX
-set_location_assignment PIN_31 -to UART_RX
 set_location_assignment PIN_105 -to SPI_DO
 set_location_assignment PIN_88 -to SPI_DI
 set_location_assignment PIN_126 -to SPI_SCK
 set_location_assignment PIN_127 -to SPI_SS2
 set_location_assignment PIN_91 -to SPI_SS3
-set_location_assignment PIN_90 -to SPI_SS4
 set_location_assignment PIN_13 -to CONF_DATA0
 set_location_assignment PIN_49 -to SDRAM_A[0]
 set_location_assignment PIN_44 -to SDRAM_A[1]
@@ -106,6 +103,7 @@ set_location_assignment PIN_66 -to SDRAM_nWE
 set_location_assignment PIN_59 -to SDRAM_nCS
 set_location_assignment PIN_33 -to SDRAM_CKE
 set_location_assignment PIN_43 -to SDRAM_CLK
+set_location_assignment PLL_1 -to "pll:pll|altpll:altpll_component"
 
 # Classic Timing Assignments
 # ==========================
@@ -144,11 +142,7 @@ set_global_assignment -name RESERVE_DCLK_AFTER_CONFIGURATION "USE AS REGULAR IO"
 set_global_assignment -name CYCLONEII_RESERVE_NCEO_AFTER_CONFIGURATION "USE AS REGULAR IO"
 set_global_assignment -name OPTIMIZE_HOLD_TIMING "ALL PATHS"
 set_global_assignment -name OPTIMIZE_MULTI_CORNER_TIMING ON
-set_global_assignment -name FITTER_EFFORT "AUTO FIT"
-
-# EDA Netlist Writer Assignments
-# ==============================
-set_global_assignment -name EDA_SIMULATION_TOOL "<None>"
+set_global_assignment -name FITTER_EFFORT "STANDARD FIT"
 
 # Assembler Assignments
 # =====================
@@ -172,21 +166,11 @@ set_global_assignment -name OUTPUT_IO_TIMING_NEAR_END_VMEAS "HALF VCCIO" -fall
 set_global_assignment -name OUTPUT_IO_TIMING_FAR_END_VMEAS "HALF SIGNAL SWING" -rise
 set_global_assignment -name OUTPUT_IO_TIMING_FAR_END_VMEAS "HALF SIGNAL SWING" -fall
 
-# start EDA_TOOL_SETTINGS(eda_simulation)
-# ---------------------------------------
-
-	# EDA Netlist Writer Assignments
-	# ==============================
-set_global_assignment -name EDA_OUTPUT_DATA_FORMAT NONE -section_id eda_simulation
-
-# end EDA_TOOL_SETTINGS(eda_simulation)
-# -------------------------------------
-
 # ------------------------
 # start ENTITY(bk0011m)
 
-	# Pin & Location Assignments
-	# ==========================
+# Pin & Location Assignments
+# ==========================
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to SDRAM_DQ[0]
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to SDRAM_DQ[1]
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to SDRAM_DQ[2]
@@ -224,26 +208,6 @@ set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to SDRAM_nRAS
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to SDRAM_nCAS
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to SDRAM_nWE
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to SDRAM_nCS
-set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to VGA_R[5]
-set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to VGA_R[4]
-set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to VGA_R[3]
-set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to VGA_R[2]
-set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to VGA_R[1]
-set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to VGA_R[0]
-set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to VGA_B[5]
-set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to VGA_B[4]
-set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to VGA_B[3]
-set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to VGA_B[2]
-set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to VGA_B[1]
-set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to VGA_B[0]
-set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to VGA_G[5]
-set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to VGA_G[4]
-set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to VGA_G[3]
-set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to VGA_G[2]
-set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to VGA_G[1]
-set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to VGA_G[0]
-set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to VGA_VS
-set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to VGA_HS
 set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to SDRAM_DQ[0]
 set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to SDRAM_DQ[1]
 set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to SDRAM_DQ[2]
@@ -260,25 +224,9 @@ set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to SDRAM_DQ[12]
 set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to SDRAM_DQ[13]
 set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to SDRAM_DQ[14]
 set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to SDRAM_DQ[15]
-set_instance_assignment -name FAST_INPUT_REGISTER ON -to SDRAM_DQ[0]
-set_instance_assignment -name FAST_INPUT_REGISTER ON -to SDRAM_DQ[1]
-set_instance_assignment -name FAST_INPUT_REGISTER ON -to SDRAM_DQ[2]
-set_instance_assignment -name FAST_INPUT_REGISTER ON -to SDRAM_DQ[3]
-set_instance_assignment -name FAST_INPUT_REGISTER ON -to SDRAM_DQ[4]
-set_instance_assignment -name FAST_INPUT_REGISTER ON -to SDRAM_DQ[5]
-set_instance_assignment -name FAST_INPUT_REGISTER ON -to SDRAM_DQ[6]
-set_instance_assignment -name FAST_INPUT_REGISTER ON -to SDRAM_DQ[7]
-set_instance_assignment -name FAST_INPUT_REGISTER ON -to SDRAM_DQ[8]
-set_instance_assignment -name FAST_INPUT_REGISTER ON -to SDRAM_DQ[9]
-set_instance_assignment -name FAST_INPUT_REGISTER ON -to SDRAM_DQ[10]
-set_instance_assignment -name FAST_INPUT_REGISTER ON -to SDRAM_DQ[11]
-set_instance_assignment -name FAST_INPUT_REGISTER ON -to SDRAM_DQ[12]
-set_instance_assignment -name FAST_INPUT_REGISTER ON -to SDRAM_DQ[13]
-set_instance_assignment -name FAST_INPUT_REGISTER ON -to SDRAM_DQ[14]
-set_instance_assignment -name FAST_INPUT_REGISTER ON -to SDRAM_DQ[15]
 
-	# Fitter Assignments
-	# ==================
+# Fitter Assignments
+# ==================
 set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to SDRAM_A[0]
 set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to SDRAM_A[1]
 set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to SDRAM_A[2]
@@ -317,7 +265,7 @@ set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to SDRAM_nCAS
 set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to SDRAM_nWE
 set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to SDRAM_nCS
 set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to SDRAM_CKE
-set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to SDRAM_CLK
+set_instance_assignment -name CURRENT_STRENGTH_NEW "MAXIMUM CURRENT" -to SDRAM_CLK
 set_instance_assignment -name CURRENT_STRENGTH_NEW 8MA -to VGA_R[5]
 set_instance_assignment -name CURRENT_STRENGTH_NEW 8MA -to VGA_R[4]
 set_instance_assignment -name CURRENT_STRENGTH_NEW 8MA -to VGA_R[3]
@@ -342,7 +290,7 @@ set_instance_assignment -name CURRENT_STRENGTH_NEW 8MA -to LED
 set_instance_assignment -name CURRENT_STRENGTH_NEW 8MA -to AUDIO_L
 set_instance_assignment -name CURRENT_STRENGTH_NEW 8MA -to AUDIO_R
 set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to SPI_DO
-set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to clk_cpu
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to CONF_DATA0
 
 # end ENTITY(bk0011m)
 # ----------------------
@@ -357,11 +305,10 @@ set_global_assignment -name VERILOG_FILE VM1/vm1_vic.v
 set_global_assignment -name VERILOG_FILE VM1/vm1_tve.v
 set_global_assignment -name VERILOG_FILE VM1/vm1_plm.v
 set_global_assignment -name VERILOG_FILE VM1/vm1_alib.v
-set_global_assignment -name VERILOG_FILE VM1/vm1_qbus.v
-set_global_assignment -name VERILOG_FILE VM1/vm1.v
+set_global_assignment -name VERILOG_FILE VM1/vm1_qbus_se.v
+set_global_assignment -name VERILOG_FILE VM1/vm1_se.v
 set_global_assignment -name VERILOG_FILE pll.v
 set_global_assignment -name VERILOG_FILE translate.v
-set_global_assignment -name VERILOG_FILE ps2_intf.v
 set_global_assignment -name SYSTEMVERILOG_FILE keyboard.sv
 set_global_assignment -name VERILOG_FILE ps2_mouse.v
 set_global_assignment -name VERILOG_FILE data_io.v
@@ -375,7 +322,6 @@ set_global_assignment -name VERILOG_FILE sram.v
 set_global_assignment -name SYSTEMVERILOG_FILE memory.sv
 set_global_assignment -name VERILOG_FILE sigma_delta_dac.v
 set_global_assignment -name SYSTEMVERILOG_FILE ym2149.sv
-set_global_assignment -name VERILOG_FILE ay8910.v
 set_global_assignment -name VERILOG_FILE scandoubler.v
 set_global_assignment -name SYSTEMVERILOG_FILE video.sv
 set_global_assignment -name SYSTEMVERILOG_FILE disk.sv
