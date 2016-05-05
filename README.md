@@ -3,16 +3,18 @@
 This project of [popular USSR home computer](https://en.wikipedia.org/wiki/Electronika_BK) is based on precise [KR1801VM1](http://zx-pk.ru/showthread.php?t=23978) Verilog model by Vslav
 
 ### Features:
-- Fully functional BK0011M and BK0010 with close to real CPU and Video timings (need furter corrections).
+- Fully functional BK0011M and BK0010 with close to real CPU and Video timings (need furter corrections)
+- Turbo mode (6MHz for BK0010, 8MHz for BK0011M)
 - Raw DSK image support (read-only, Disk A)
 - Multipatitioned VHD image (read-write, Disk C+)
 - BIN file support for BK0010 mode (only single file apps are supported)
 - A16M extension for BK0010 (support for short and long resets)
 - SMK512 extension for BK0011M
-- AY8910 Sound with 1.71MHz clock
+- YM2149 with 1.71MHz clock
 - Joystick
 - Mouse
 
+No contention model is used in turbo mode, thus speed is higher more than twice.
 
 ### Installation:
 Copy the *.rbf file at the root of the SD card. You can rename the file to core.rbf if you want the MiST to load it automatically at startup.
@@ -39,6 +41,7 @@ Press F12 to access OSD menu.
 | F1          | ПОВТ          |
 | F2          | ВС            |
 | F3          | ГРАФ          |
+| F4          | Color/Mono    |
 | F5          | -!->          |
 | F6          | ИНДСУ         |
 | F7          | БЛОК РЕД      |
