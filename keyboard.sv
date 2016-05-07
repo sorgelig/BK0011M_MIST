@@ -99,8 +99,8 @@ always @(posedge clk_sys) begin
 		reg660[7]   <= 0;
 		req60       <= 0;
 		req274      <= 0;
-	end else if(ce_cpu_p) begin
-		if(state_stop) state_stop <= state_stop - 8'd1;
+	end else begin
+		if(state_stop & ce_cpu_p) state_stop <= state_stop - 8'd1;
 
 		old_stb660 <= stb660;
 		if(!old_stb660 && stb660) begin

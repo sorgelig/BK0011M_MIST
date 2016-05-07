@@ -76,14 +76,12 @@ reg  ce_12mp;
 reg  ce_12mn;
 reg  ce_6mp;
 reg  ce_6mn;
-reg  clk_ps2;
 reg  turbo;
 
 always @(negedge clk_sys) begin
 	reg  [3:0] div = 0;
 	reg  [4:0] cpu_div = 0;
 	reg  [5:0] psg_div = 0;
-	reg [11:0] ps2_div = 0;
 
 	cpu_div <= cpu_div + 1'd1;
 	if(cpu_div == ((5'd23 + {bk0010, 3'b000})>>turbo)) begin
@@ -103,12 +101,6 @@ always @(negedge clk_sys) begin
 	if(psg_div == 55) psg_div <= 0;
 
 	ce_psg <= !psg_div;
-
-	ps2_div <= ps2_div + 1'd1;
-	if(ps2_div == 3427) begin 
-		ps2_div <= 0;
-		clk_ps2 <= ~clk_ps2;
-	end
 end
 
 
@@ -145,8 +137,6 @@ user_io #(.STRLEN(119)) user_io
 	(
         "BK0011M;BIN;F4,DSK;S3,VHD;O1,CPU speed,3MHz/4MHz,6MHz/8MHz;O5,Model,BK0011M,BK0010;O6,Disk,On,Off;T2,Reset & unload DSK"
 	),
-
-	.ps2_clk(clk_ps2),
 
 	// unused
 	.joystick_analog_0(),
