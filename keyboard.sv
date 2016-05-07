@@ -3,7 +3,7 @@
 module keyboard
 (
 	input         clk_sys,
-	input         ce_cpu_p,
+	input         ce_bus,
 
 	input  [15:0] bus_din,
 	output [15:0] bus_dout,
@@ -43,15 +43,14 @@ reg [15:0] reg662 = 16'd0;
 reg [15:0] data_o;
 assign bus_dout = valid ? data_o : 16'd0;
 
-wire sel660 = bus_sync && (bus_addr[15:1] == (16'o177660 >> 1));
+wire sel660 = bus_sync &&  (bus_addr[15:1] == (16'o177660 >> 1));
 wire sel662 = bus_sync && ((bus_addr[15:1] == (16'o177662 >> 1)) && !bus_we); //Read-only
 wire stb660 = bus_stb && sel660;
 wire stb662 = bus_stb && sel662;
 
 wire valid  = sel660 | sel662;
 
-assign bus_ack = bus_stb & valid & ack;
-always @ (posedge clk_sys) if(ce_cpu_p) ack <= bus_stb;
+assign bus_ack = bus_stb & valid;
 
 reg req60, req274;
 assign virq_req60  = req60;
@@ -76,8 +75,8 @@ wire       autoar2;
 reg  [8:0] keys[4:0] = '{default:0};
 kbd_transl kbd_transl(.shift(state_shift), .e0(keys[0][8]), .incode(keys[0][7:0]), .outcode(decoded), .autoar2(autoar2));
 
-wire lowercase = (decoded > 7'h60) & (decoded <= 7'h7a); 
-wire uppercase = (decoded > 7'h40) & (decoded <= 7'h5a);
+wire lowercase = (decoded > 'h60) & (decoded <= 'h7a); 
+wire uppercase = (decoded > 'h40) & (decoded <= 'h5a);
 
 wire [6:0] ascii = state_ctrl ? {2'b00, decoded[4:0]} : 
                     lowercase ? decoded - (state_rus ^ state_caps) : 
@@ -93,14 +92,14 @@ always @(posedge clk_sys) begin
 	if(!old_bus_reset && bus_reset) begin
 		prev_clk    <= 0;
 		shift_reg   <= 'hFFF;
-		state_caps  <= 7'h00;
-		state_rus   <= 7'h20;
+		state_caps  <= 'h00;
+		state_rus   <= 'h20;
 		reg660[6]   <= 1;
 		reg660[7]   <= 0;
 		req60       <= 0;
 		req274      <= 0;
 	end else begin
-		if(state_stop & ce_cpu_p) state_stop <= state_stop - 8'd1;
+		if(state_stop && ce_bus) state_stop <= state_stop - 8'd1;
 
 		old_stb660 <= stb660;
 		if(!old_stb660 && stb660) begin
@@ -129,21 +128,21 @@ always @(posedge clk_sys) begin
 		if(prev_clk == 1) begin
 			if (kdata[11] & ^kdata[10:2] & (kdata[1:0] == 1)) begin
 				shift_reg <= 'hFFF;
-				if (keyb_data == 8'HE0)
+				if (keyb_data == 'hE0)
 					e0 <= 1;
-				else if (keyb_data == 8'HF0)
+				else if (keyb_data == 'hF0)
 					pressed <= 0;
 				else begin
 					casex(key_data)
-						9'H058: if(pressed) state_caps <= state_caps ^ 7'h20;
-						9'H059: state_shift <= pressed;
-						9'H012: state_shift <= pressed;
-						9'HX11: state_alt   <= pressed;
-						9'H114: state_ctrl  <= pressed;
-						8'H009: if(pressed) state_stop <= 40;
-						8'H078: {state_reset, key_color} <= {state_ctrl & pressed, ~state_ctrl & pressed};
-						9'H00c: key_bw <= pressed;
-						9'H007: ; // disable F12 handling
+						9'h058: if(pressed) state_caps <= state_caps ^ 7'h20;
+						9'h059: state_shift <= pressed;
+						9'h012: state_shift <= pressed;
+						9'hX11: state_alt   <= pressed;
+						9'h114: state_ctrl  <= pressed;
+						8'h009: if(pressed) state_stop <= 40;
+						8'h078: if(pressed) {state_reset, key_color} <= {state_ctrl, ~state_ctrl}; else {state_reset, key_color} <= 0;
+						9'h00c: key_bw <= pressed;
+						9'h007: ; // disable F12 handling
 						default: begin
 							if(pressed) begin
 								keys[4:1] <= keys[3:0];
@@ -179,8 +178,8 @@ always @(posedge clk_sys) begin
 			key_change <= 0;
 			key_down   <= |ascii;
 
-			if(decoded == 7'o016)      state_rus <= 7'h00;
-			else if(decoded == 7'o017) state_rus <= 7'h20;
+			if(decoded == 'o016)      state_rus <= 'h00;
+			else if(decoded == 'o017) state_rus <= 'h20;
 
 			if(ascii) begin
 				reg662[6:0] <= ascii;

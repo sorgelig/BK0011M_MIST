@@ -71,6 +71,7 @@ pll pll
 
 reg  ce_cpu_p;
 reg  ce_cpu_n;
+wire ce_bus = ce_cpu_p;
 reg  ce_psg;
 reg  ce_12mp;
 reg  ce_12mn;
@@ -168,20 +169,17 @@ wire        bus_stb = cpu_dout_in | cpu_din_out;
 vm1_reset reset
 (
 	.clk(CLOCK_27),
-	.reset(~plock | !sys_ready | reset_req | buttons[1] | status[0] | status[2] | key_reset),
+	.reset(!sys_ready | reset_req | buttons[1] | status[2] | key_reset),
 	.dclo(cpu_dclo),
 	.aclo(cpu_aclo)
 );
 
-// Wait for bk0011m.rom loading
+// Wait for bk0011m.rom
 reg sys_ready = 0;
 always @(posedge clk_sys) begin
-	integer initwait;
-
-	if(ce_cpu_p & ~sys_ready) begin
-		if(initwait < 5000000) initwait <= initwait + 1;
-			else sys_ready <= 1;
-	end
+	reg old_copy;
+	old_copy <= dsk_copy;
+	if(old_copy & ~dsk_copy) sys_ready <= 1;
 end
 
 vm1_se cpu
@@ -227,15 +225,14 @@ wire        sysreg_write = bus_stb & sysreg_sel & bus_we;
 wire        port_write   = bus_stb & port_sel   & bus_we;
 
 reg   [2:0] dout_delay;
-always @(negedge clk_sys) if(ce_cpu_p) dout_delay <= {dout_delay[1:0], cpu_dout_out};
-always @(negedge clk_sys) if(ce_cpu_p) cpu_ack <= keyboard_ack | scrreg_ack | ram_ack | disk_ack | ivec_ack;
+always @(negedge clk_sys) if(ce_bus) dout_delay <= {dout_delay[1:0], cpu_dout_out};
+always @(negedge clk_sys) if(ce_bus) cpu_ack <= keyboard_ack | scrreg_ack | ram_ack | disk_ack | ivec_ack;
 
 reg  super_flg  = 1'b0;
 wire sysreg_acc = bus_stb & sysreg_sel;
 always @(posedge clk_sys) begin
 	reg old_acc;
 	old_acc <= sysreg_acc;
-
 	if(~old_acc & sysreg_acc) super_flg <= bus_we;
 end
 
@@ -275,24 +272,22 @@ always @(posedge clk_sys) begin
 	integer reset_time;
 	reg old_dclo, old_sel, old_bk0010, old_disk_rom;
 
-	if(ce_cpu_p) begin
-		old_dclo <= cpu_dclo;
-		old_sel  <= sysreg_sel;
+	old_dclo <= cpu_dclo;
+	old_sel  <= sysreg_sel;
 
-		if(!old_dclo & cpu_dclo) begin 
-			reset_time   <= 0;
-			old_bk0010   <= bk0010;
-			old_disk_rom <= disk_rom;
-		end else if(cpu_dclo) begin 
-			reset_time <= reset_time + 1'b1;
-			bk0010     <= status[5];
-			disk_rom   <= ~status[6];
-			cold_start <= (old_bk0010 != bk0010) || (old_disk_rom != disk_rom) || (reset_time >= 1500000*2);
-			mode_start <= 1;
-		end
-
-		if(old_sel && !sysreg_sel) mode_start <= 0;
+	if(!old_dclo & cpu_dclo) begin 
+		reset_time   <= 10000000;
+		old_bk0010   <= bk0010;
+		old_disk_rom <= disk_rom;
+	end else if(cpu_dclo) begin 
+		if(ce_12mp && reset_time) reset_time <= reset_time - 1;
+		bk0010     <= status[5];
+		disk_rom   <= ~status[6];
+		cold_start <= (old_bk0010 != bk0010) | (old_disk_rom != disk_rom) | !reset_time;
+		mode_start <= 1;
 	end
+
+	if(old_sel && !sysreg_sel) mode_start <= 0;
 end
 
 
@@ -306,10 +301,10 @@ wire ivec_ack;
 wire virq_req60, virq_req274;
 wire virq_ack60, virq_ack274;
 
-vic_wb #(.N(2)) vic 
+vic_wb #(2) vic 
 (
 	.clk_sys(clk_sys),
-	.ce(ce_cpu_p),
+	.ce(ce_bus),
 	.wb_rst_i(bus_reset),
 	.wb_irq_o(cpu_virq),	
 	.wb_dat_o(ivec_o),
@@ -344,18 +339,13 @@ keyboard keyboard
 	.bus_ack(keyboard_ack)
 );
 
-reg         joystick_or_mouse = 1'b0;
-wire [15:0] port_data = port_sel ? (joystick_or_mouse ? mouse_state : joystick_state) : 16'd0;
-wire [15:0] joystick_state  = {7'b0000000, joystick};
-wire  [7:0] joystick =  joystick_0 |  joystick_1;
-wire        use_joystick = (joystick != 8'd0);
+reg         joystick_or_mouse = 0;
+wire [15:0] port_data = port_sel ? (joystick_or_mouse ? mouse_state : joystick) : 16'd0;
+wire  [7:0] joystick =  joystick_0 | joystick_1;
 
 always @(posedge clk_sys) begin
-	reg old_joystick, old_mouse;
-	{old_joystick, old_mouse} <= {use_joystick, mouse_data_ready};
-
-	if(~old_joystick & use_joystick)  joystick_or_mouse <= 0;
-	if(~old_mouse & mouse_data_ready) joystick_or_mouse <= 1;
+	if(|joystick)        joystick_or_mouse <= 0;
+	if(mouse_data_ready) joystick_or_mouse <= 1;
 end
 
 wire        left_btn, right_btn;
@@ -375,29 +365,30 @@ ps2_mouse mouse
 	.counter(mouse_counter)
 );
 
-reg  [15:0] mouse_state  = 16'd0;
-reg         mouse_enable = 1'b0;
-wire        mouse_write  = bus_wtbt[0] & port_write;
+reg  [6:0] mouse_state  = 0;
+wire       mouse_write  = bus_wtbt[0] & port_write;
 always @(posedge clk_sys) begin
-	if(ce_cpu_p) begin
-		if(mouse_write) begin 
-			mouse_enable <= cpu_dout[3];
-			if(!cpu_dout[3]) mouse_state[3:0] <= 4'b0000;
-		end else begin
-			mouse_state[6] <= right_btn;
-			mouse_state[5] <= left_btn;
-			if(mouse_enable) begin
-				if(old_mouse_counter != mouse_counter) begin
-					if(!mouse_state[0] && !mouse_state[2]) begin
-						if(!pointer_dy[8] && ( pointer_dy > 3)) mouse_state[0] <= 1'b1;
-						if( pointer_dy[8] && (~pointer_dy > 2)) mouse_state[2] <= 1'b1;
-					end
-					if(!mouse_state[1] && !mouse_state[3]) begin
-						if(!pointer_dx[8] && ( pointer_dx > 3)) mouse_state[1] <= 1'b1;
-						if( pointer_dx[8] && (~pointer_dx > 2)) mouse_state[3] <= 1'b1;
-					end
-					old_mouse_counter <= mouse_counter;
+	reg mouse_enable = 0;
+	reg old_write;
+	old_write <= mouse_write;
+
+	if(~old_write & mouse_write) begin 
+		mouse_enable <= cpu_dout[3];
+		if(!cpu_dout[3]) mouse_state[3:0] <= 0;
+	end else begin
+		mouse_state[6] <= right_btn;
+		mouse_state[5] <= left_btn;
+		if(mouse_enable) begin
+			if(old_mouse_counter != mouse_counter) begin
+				if(!mouse_state[0] && !mouse_state[2]) begin
+					if(!pointer_dy[8] && ( pointer_dy > 3)) mouse_state[0] <= 1;
+					if( pointer_dy[8] && (~pointer_dy > 2)) mouse_state[2] <= 1;
 				end
+				if(!mouse_state[1] && !mouse_state[3]) begin
+					if(!pointer_dx[8] && ( pointer_dx > 3)) mouse_state[1] <= 1;
+					if( pointer_dx[8] && (~pointer_dx > 2)) mouse_state[3] <= 1;
+				end
+				old_mouse_counter <= mouse_counter;
 			end
 		end
 	end

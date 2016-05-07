@@ -2,7 +2,7 @@
 module disk
 (
 	input         clk_sys,
-	input         ce_cpu_p,
+	input         ce_bus,
 
 	input         reset,
 	input         reset_full,
@@ -204,15 +204,7 @@ wire stb134 = bus_stb && sel134;
 wire stb670 = bus_stb && sel670;
 wire valid  = (disk_rom & (sel130w | sel130r | sel132 | sel134)) | sel670;
 
-assign bus_ack = bus_stb & valid & ack[1];
-
-reg  [1:0] ack;
-always @ (posedge clk_sys) begin
-	if(ce_cpu_p) begin
-		ack[0] <= bus_stb;
-		ack[1] <= bus_sync & ack[0];
-	end
-end
+assign bus_ack = bus_sync & bus_stb & valid;
 
 wire        reg_access = (disk_rom & (stb132 | stb134)) | stb670;
 
@@ -265,7 +257,7 @@ always @(posedge clk_sys) begin
 	reg  [7:0] disk;
 	reg        write;
 
-	if(ce_cpu_p) begin
+	if(ce_bus) begin
 		old_access <= reg_access;
 		if(!old_access && reg_access) begin 
 			processing <= 1;

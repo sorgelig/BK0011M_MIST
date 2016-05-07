@@ -34,7 +34,6 @@ module memory
 
 	input         init,
 	input         clk_sys,
-	input         ce_cpu_p,
 	input         ce_6mp,
 	input         ce_6mn,
 	input         turbo,
