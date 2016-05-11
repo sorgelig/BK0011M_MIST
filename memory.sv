@@ -1,7 +1,7 @@
 //
 //	BK0011M/BK0010 memory implementation.
 //
-// Copyright (c) 2015 Sorgelig
+// Copyright (c) 2015,2016 Sorgelig
 //
 // Some parts of SDRAM code used from project: 
 // http://hamsterworks.co.nz/mediawiki/index.php/Simple_SDRAM_Controller
@@ -86,12 +86,12 @@ wire ram_ready;
 sram ram
 (
 	.*,
-	.clk_sdram(clk_sys),	
-	.addr(ram_addr[24:1]),
+	.clk(clk_sys),	
+	.addr({ram_addr[24:1],1'b0}),
 	.dout(ram_dout),
 	.din(ram_din),
 	.wtbt(ram_wtbt),
-	.we(ram_we),
+	.we(ram_we && ram_wtbt),
 	.rd(ram_rd),
 	.ready(ram_ready)
 );
@@ -495,18 +495,6 @@ always @(posedge clk_sys) begin
 end
 
 // ROM or Ext RAM or in-turbo ack
-reg  ext_ack;
-wire ext_req = ram_stb & !legacy_ram;
-always @(posedge clk_sys) begin
-	reg old_req, old_ready, ram_wait;
-	
-	if(~ext_req) {ext_ack, ram_wait} <= 0;
-	
-	old_req <= ext_req;
-	if(~old_req & ext_req) ram_wait  <= 1;
-	
-	old_ready <= ram_ready;
-	if(~old_ready & ram_ready & ram_wait) ext_ack <= 1;
-end
+wire ext_ack = ram_stb & !legacy_ram;
 
 endmodule

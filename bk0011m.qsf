@@ -318,7 +318,7 @@ set_global_assignment -name VERILOG_FILE sector_w2b.v
 set_global_assignment -name VERILOG_FILE sector_b2d.v
 set_global_assignment -name VERILOG_FILE sector_b2w.v
 set_global_assignment -name VERILOG_FILE dpram.v
-set_global_assignment -name VERILOG_FILE sram.v
+set_global_assignment -name SYSTEMVERILOG_FILE sram.sv
 set_global_assignment -name SYSTEMVERILOG_FILE memory.sv
 set_global_assignment -name VERILOG_FILE sigma_delta_dac.v
 set_global_assignment -name SYSTEMVERILOG_FILE ym2149.sv
