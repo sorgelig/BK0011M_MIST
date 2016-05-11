@@ -453,6 +453,7 @@ wire [15:0] vram_data;
 video video
 (
 	.*,
+	.reset(cpu_dclo),
 	.mode(scandoubler_disable),
 	.color_switch(key_color),
 	.bw_switch(key_bw),

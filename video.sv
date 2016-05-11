@@ -2,6 +2,8 @@
 
 module video
 (
+	input         reset,
+
 	input         clk_sys,
 	input         ce_12mp,
 	input         ce_12mn,
@@ -141,42 +143,33 @@ assign {VGA_HS,  VGA_VS,  VGA_R, VGA_G, VGA_B} = mode ?
 
 ///////////////////////////////////////////////////////////////////////////////////////
 
-reg  [15:0] reg664      = 16'o001330;
-reg  [15:0] reg662      = 16'o045400;
+reg  [15:0] reg664      = 'o001330;
+reg  [15:0] reg662      = 'o045400;
 wire  [3:0] pal         = reg662[11:8];
+reg         color       = 1;
 wire        screen_bank = ~bk0010 &  reg662[15];
 wire        irq_en      = ~bk0010 & ~reg662[14];
 wire        full_screen = reg664[9];
 wire  [7:0] scroll      = reg664[7:0];
 
-reg color = 1;
-always @(posedge clk_sys) begin
-	reg old_switch;
-	old_switch <= bw_switch;
-	if(~old_switch & bw_switch) color <= ~color;
-end
-
 assign bus_dout = sel664 ? reg664 : 16'd0;
 assign bus_ack  = bus_stb & (sel664 | sel662);
 
-wire sel662 = bus_sync && (bus_addr[15:1] == (16'o177662 >> 1)) && bus_we && !bk0010;
-wire stb662 = bus_stb  && sel662;
-wire sel664 = bus_sync && (bus_addr[15:1] == (16'o177664 >> 1));
-wire stb664 = bus_stb  && sel664 && bus_we;
-
-wire stb662c = stb662 | color_switch;
+wire sel662  = bus_sync && (bus_addr[15:1] == (16'o177662 >> 1)) && bus_we && !bk0010;
+wire sel664  = bus_sync && (bus_addr[15:1] == (16'o177664 >> 1));
 
 always @(posedge clk_sys) begin
-	reg old_stb664, old_stb662, old_stb662c;
-	{old_stb664, old_stb662, old_stb662c} <= {stb664, stb662, stb662c};
-	
-	if(~old_stb664 & stb664) {reg664[9], reg664[7:0]} <= {bus_din[9], bus_din[7:0]};
-	if(~old_stb662 & stb662) reg662[15:14] <= bus_din[15:14];
+	reg old_stb, old_cswitch, old_bwswitch;
+	{old_stb, old_cswitch, old_bwswitch} <= {bus_stb, color_switch, bw_switch};
 
-	if(~old_stb662c & stb662c) begin
-		if(sel662) reg662[11:8] <= bus_din[11:8];
-			else if(color) reg662[11:8] <= reg662[11:8] + 1'd1;
+	if(~old_stb & bus_stb) begin
+		if(sel664 & bus_we) {reg664[9], reg664[7:0]} <= {bus_din[9], bus_din[7:0]};
+		if(sel662) reg662[15:8] <= bus_din[15:8];
 	end
+
+	if(~old_bwswitch & bw_switch) color <= ~color;
+	if(~old_cswitch & color_switch & color) reg662[11:8] <= reg662[11:8] + 1'd1;
+	if(reset) reg662 <= bk0010 ? 16'o045400 : 16'o047400;
 end
 
 endmodule
