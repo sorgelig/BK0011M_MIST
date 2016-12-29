@@ -23,6 +23,7 @@ module keyboard
 
 	input         ps2_kbd_clk,
 	input         ps2_kbd_data,
+	output        ps2_caps_led,
 	output reg    key_down,
 	output        key_stop,
 	output        key_reset,
@@ -83,6 +84,8 @@ wire [6:0] ascii = state_ctrl ? {2'b00, decoded[4:0]} :
                     uppercase ? decoded + (state_rus ^ state_caps) : decoded; 
 
 wire [8:0] key_data = {e0, keyb_data};
+
+assign ps2_caps_led = ~state_caps[5];
 
 always @(posedge clk_sys) begin
 	reg old_stb660, old_stb662, old_ack60, old_ack274, old_bus_reset, key_change;

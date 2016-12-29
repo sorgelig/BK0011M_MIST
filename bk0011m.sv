@@ -110,6 +110,7 @@ wire        ps2_kbd_clk;
 wire        ps2_kbd_data;
 wire        ps2_mouse_clk;
 wire        ps2_mouse_data;
+wire        ps2_caps_led;
 
 wire  [7:0] joystick_0;
 wire  [7:0] joystick_1;
