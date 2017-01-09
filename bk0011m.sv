@@ -117,6 +117,7 @@ wire  [7:0] joystick_1;
 wire  [1:0] buttons;
 wire  [1:0] switches;
 wire        scandoubler_disable;
+wire        ypbpr;
 wire  [7:0] status;
 
 wire [31:0] sd_lba;
@@ -455,7 +456,6 @@ video video
 (
 	.*,
 	.reset(cpu_dclo),
-	.mode(scandoubler_disable),
 	.color_switch(key_color),
 	.bw_switch(key_bw),
 

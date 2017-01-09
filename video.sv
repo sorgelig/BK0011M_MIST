@@ -12,7 +12,8 @@ module video
 	input         bk0010,
 	input         color_switch,
 	input         bw_switch,
-	input         mode,
+	input         scandoubler_disable,
+	input         ypbpr,
 
 	// OSD bus
 	input         SPI_SCK,
@@ -52,7 +53,6 @@ reg  [7:0] vcr;
 reg  [2:0] blank_mask;
 reg  HSync;
 reg  VSync;
-wire CSync = HSync ^ VSync;
 
 always @(posedge clk_sys) begin
 	if(ce_12mp) begin
@@ -137,9 +137,23 @@ scandoubler scandoubler
 	.b_in(B_out)
 );
 
-assign {VGA_HS,  VGA_VS,  VGA_R, VGA_G, VGA_B} = mode ? 
-       {~CSync,  1'b1,    R_out, G_out, B_out}: 
-       {~hs_out, ~vs_out, r_out, g_out, b_out};
+video_mixer video_mixer
+(
+	.*,
+	.ypbpr_full(1),
+
+	.r_i({R_out, R_out[5:4]}),
+	.g_i({G_out, G_out[5:4]}),
+	.b_i({B_out, B_out[5:4]}),
+	.hsync_i(HSync),
+	.vsync_i(VSync),
+
+	.r_p({r_out, r_out[5:4]}),
+	.g_p({g_out, g_out[5:4]}),
+	.b_p({b_out, b_out[5:4]}),
+	.hsync_p(hs_out),
+	.vsync_p(vs_out)
+);
 
 ///////////////////////////////////////////////////////////////////////////////////////
 

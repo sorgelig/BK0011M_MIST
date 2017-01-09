@@ -323,6 +323,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE memory.sv
 set_global_assignment -name VERILOG_FILE sigma_delta_dac.v
 set_global_assignment -name SYSTEMVERILOG_FILE ym2149.sv
 set_global_assignment -name VERILOG_FILE scandoubler.v
+set_global_assignment -name SYSTEMVERILOG_FILE video_mixer.sv
 set_global_assignment -name SYSTEMVERILOG_FILE video.sv
 set_global_assignment -name SYSTEMVERILOG_FILE disk.sv
 set_global_assignment -name SYSTEMVERILOG_FILE bk0011m.sv
