@@ -133,6 +133,7 @@ wire  [7:0] sd_buff_din;
 wire        sd_buff_wr;
 wire        sd_mounted;
 
+`include "build_id.v"
 localparam CONF_STR = 
 {
 	"BK0011M;BINDSK;",
@@ -140,7 +141,8 @@ localparam CONF_STR =
 	"O78,Video Scale,Simple,HQ2x,CRT 25%,CRT 50%;",
 	"O1,CPU Speed,3MHz/4MHz,6MHz/8MHz;",
 	"O56,Model,BK0011M & DSK,BK0010 & DSK,BK0011M,BK0010;",
-	"T2,Reset & Unload Disk"
+	"T2,Reset & Unload Disk;",
+	"V,v2.50.",`BUILD_DATE
 };
 
 user_io #(.STRLEN(($size(CONF_STR)>>3))) user_io

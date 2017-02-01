@@ -301,6 +301,7 @@ set_global_assignment -name FLOW_ENABLE_IO_ASSIGNMENT_ANALYSIS ON
 set_global_assignment -name PARTITION_NETLIST_TYPE SOURCE -section_id Top
 set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id Top
 set_global_assignment -name PARTITION_COLOR 16764057 -section_id Top
+set_global_assignment -name PRE_FLOW_SCRIPT_FILE quartus_sh:build_id_verilog.tcl
 set_global_assignment -name VERILOG_FILE VM1/vm1_vic.v
 set_global_assignment -name VERILOG_FILE VM1/vm1_tve.v
 set_global_assignment -name VERILOG_FILE VM1/vm1_plm.v
@@ -313,7 +314,6 @@ set_global_assignment -name SYSTEMVERILOG_FILE keyboard.sv
 set_global_assignment -name VERILOG_FILE ps2_mouse.v
 set_global_assignment -name VERILOG_FILE data_io.v
 set_global_assignment -name VERILOG_FILE user_io.v
-set_global_assignment -name VERILOG_FILE osd.v
 set_global_assignment -name VERILOG_FILE sector_w2b.v
 set_global_assignment -name VERILOG_FILE sector_b2d.v
 set_global_assignment -name VERILOG_FILE sector_b2w.v
@@ -324,6 +324,7 @@ set_global_assignment -name VERILOG_FILE sigma_delta_dac.v
 set_global_assignment -name SYSTEMVERILOG_FILE ym2149.sv
 set_global_assignment -name SYSTEMVERILOG_FILE hq2x.sv
 set_global_assignment -name VERILOG_FILE scandoubler.v
+set_global_assignment -name VERILOG_FILE osd.v
 set_global_assignment -name SYSTEMVERILOG_FILE video_mixer.sv
 set_global_assignment -name SYSTEMVERILOG_FILE video.sv
 set_global_assignment -name SYSTEMVERILOG_FILE disk.sv
