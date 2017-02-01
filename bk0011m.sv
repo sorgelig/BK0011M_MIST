@@ -118,7 +118,7 @@ wire  [1:0] buttons;
 wire  [1:0] switches;
 wire        scandoubler_disable;
 wire        ypbpr;
-wire  [7:0] status;
+wire [31:0] status;
 
 wire [31:0] sd_lba;
 wire        sd_rd;
@@ -133,15 +133,22 @@ wire  [7:0] sd_buff_din;
 wire        sd_buff_wr;
 wire        sd_mounted;
 
-user_io #(.STRLEN(119)) user_io
+localparam CONF_STR = 
+{
+	"BK0011M;BINDSK;",
+	"S3,VHD;",
+	"O1,CPU speed,3MHz/4MHz,6MHz/8MHz;",
+	"O56,Model,BK0011M & DSK,BK0010 & DSK,BK0011M,BK0010;",
+	"T2,Reset & unload disk"
+};
+
+user_io #(.STRLEN(($size(CONF_STR)>>3))) user_io
 (
 	.*,
-	.conf_str
-	(
-        "BK0011M;BIN;F4,DSK;S3,VHD;O1,CPU speed,3MHz/4MHz,6MHz/8MHz;O5,Model,BK0011M,BK0010;O6,Disk,On,Off;T2,Reset & unload DSK"
-	),
+	.conf_str(CONF_STR),
 
 	// unused
+	.img_size(),
 	.joystick_analog_0(),
 	.joystick_analog_1()
 );

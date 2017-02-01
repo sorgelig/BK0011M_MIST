@@ -31,7 +31,7 @@ module data_io
 	input             SPI_DI,
 
 	output reg        ioctl_download = 0, // signal indicating an active download
-	output reg  [4:0] ioctl_index,        // menu index used to upload the file
+	output reg  [7:0] ioctl_index,        // menu index used to upload the file
 	output            ioctl_we,
 	output reg [24:0] ioctl_addr,
 	output reg [15:0] ioctl_dout
@@ -104,7 +104,7 @@ always@(posedge SPI_SCK, posedge SPI_SS2) begin
 		end
 
       // expose file (menu) index
-      if((cmd == UIO_FILE_INDEX) && (cnt == 15)) ioctl_index <= {sbuf[3:0], SPI_DI};
+      if((cmd == UIO_FILE_INDEX) && (cnt == 15)) ioctl_index <= {sbuf, SPI_DI};
 	end
 end
 

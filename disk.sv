@@ -112,7 +112,7 @@ wire        ioctl_download;
 wire        ioctl_we;
 wire [24:0] ioctl_addr;
 wire [15:0] ioctl_dout;
-wire  [4:0] ioctl_index;
+wire  [7:0] ioctl_index;
 
 reg         fdd_ready = 0;
 reg  [24:0] fdd_size = 0;
@@ -146,7 +146,7 @@ always @(posedge clk_sys) begin
 					bk0010_stub <= bk0010;
 				end
 
-			2: begin 
+			'h41: begin 
 					fdd_ready <= 1;
 					fdd_size  <= ioctl_addr - 25'h120000;
 				end
