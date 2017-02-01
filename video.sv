@@ -1,3 +1,12 @@
+//
+//
+// Copyright (c) 2017 Sorgelig
+//
+// This program is GPL Licensed. See COPYING for the full license.
+//
+//
+////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 `timescale 1ns / 1ps
 
 module video
@@ -14,6 +23,8 @@ module video
 	input         bw_switch,
 	input         scandoubler_disable,
 	input         ypbpr,
+	input         hq2x,
+	input   [1:0] scanlines,
 
 	// OSD bus
 	input         SPI_SCK,
@@ -54,7 +65,10 @@ reg  [2:0] blank_mask;
 reg  HSync;
 reg  VSync;
 
+reg  ce_col = 0;
 always @(posedge clk_sys) begin
+	reg  col_mod;
+
 	if(ce_12mp) begin
 		hc <= hc + 1'd1;
 		if(hc == 767) begin 
@@ -69,10 +83,14 @@ always @(posedge clk_sys) begin
 
 		if(hc == 593) begin
 			HSync <= 1;
-			if(vc == 276) VSync <= 1;
+			if(vc == 276) begin
+				VSync <= 1;
+				ce_col <= 1;
+				col_mod <= color;
+			end
 			if(vc == 280) VSync <= 0;
 		end
-
+		
 		if(hc == 649) begin
 			HSync <= 0;
 			if(vc == 256) irq <= 1;
@@ -81,6 +99,7 @@ always @(posedge clk_sys) begin
 	end
 
 	if(ce_12mn) begin
+		ce_col <= ce_col ^ col_mod;
 		dotm <= hc[0];
 		if(!hc[0]) begin
 			dots <= {2'b00, dots[15:2]};
@@ -105,54 +124,17 @@ wire [1:0] R;
 wire G, B;
 assign {R[1], B, G, R[0]} = color ? comp[3:0] : {4{dotc[dotm]}};
 
-wire [5:0] R_out;
-wire [5:0] G_out;
-wire [5:0] B_out;
-
-osd #(10'd0, 10'd0, 3'd4) osd
+video_mixer #(.LINE_LENGTH(768)) video_mixer
 (
 	.*,
-	.ce_pix(ce_12mp),
-	.R_in({3{R}}),
-	.G_in({6{G}}),
-	.B_in({6{B}})
-);
+	.ce_pix(ce_12mp & ce_col),
 
-wire hs_out, vs_out;
-wire [5:0] r_out;
-wire [5:0] g_out;
-wire [5:0] b_out;
-
-scandoubler scandoubler
-(
-	.*,
-	.ce_x2(ce_12mp | ce_12mn),
-	.ce_x1(ce_12mp),
-	.scanlines(2'b00),
-
-	.hs_in(HSync),
-	.vs_in(VSync),
-	.r_in(R_out),
-	.g_in(G_out),
-	.b_in(B_out)
-);
-
-video_mixer video_mixer
-(
-	.*,
 	.ypbpr_full(1),
+	.line_start(0),
 
-	.r_i({R_out, R_out[5:4]}),
-	.g_i({G_out, G_out[5:4]}),
-	.b_i({B_out, B_out[5:4]}),
-	.hsync_i(HSync),
-	.vsync_i(VSync),
-
-	.r_p({r_out, r_out[5:4]}),
-	.g_p({g_out, g_out[5:4]}),
-	.b_p({b_out, b_out[5:4]}),
-	.hsync_p(hs_out),
-	.vsync_p(vs_out)
+	.R({4{R}}),
+	.G({8{G}}),
+	.B({8{B}})
 );
 
 ///////////////////////////////////////////////////////////////////////////////////////

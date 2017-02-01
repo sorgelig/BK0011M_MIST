@@ -137,9 +137,10 @@ localparam CONF_STR =
 {
 	"BK0011M;BINDSK;",
 	"S3,VHD;",
-	"O1,CPU speed,3MHz/4MHz,6MHz/8MHz;",
+	"O78,Video Scale,Simple,HQ2x,CRT 25%,CRT 50%;",
+	"O1,CPU Speed,3MHz/4MHz,6MHz/8MHz;",
 	"O56,Model,BK0011M & DSK,BK0010 & DSK,BK0011M,BK0010;",
-	"T2,Reset & unload disk"
+	"T2,Reset & Unload Disk"
 };
 
 user_io #(.STRLEN(($size(CONF_STR)>>3))) user_io
@@ -465,6 +466,8 @@ video video
 	.reset(cpu_dclo),
 	.color_switch(key_color),
 	.bw_switch(key_bw),
+	.hq2x(status[8:7] == 1),
+	.scanlines(scandoubler_disable ? 2'b00 : {status[8:7] == 3,status[8:7] == 2}),
 
 	.bus_dout(scrreg_data),
 	.bus_ack(scrreg_ack)
