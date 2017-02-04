@@ -23,8 +23,7 @@ module video
 	input         bw_switch,
 	input         scandoubler_disable,
 	input         ypbpr,
-	input         hq2x,
-	input   [1:0] scanlines,
+	input   [1:0] scale,
 
 	// OSD bus
 	input         SPI_SCK,
@@ -65,7 +64,7 @@ reg  [2:0] blank_mask;
 reg  HSync;
 reg  VSync;
 
-reg  ce_col = 0;
+reg  mode512;
 always @(posedge clk_sys) begin
 	reg  col_mod;
 
@@ -85,8 +84,7 @@ always @(posedge clk_sys) begin
 			HSync <= 1;
 			if(vc == 276) begin
 				VSync <= 1;
-				ce_col <= 1;
-				col_mod <= color;
+				mode512 <= ~(color & hq2x);
 			end
 			if(vc == 280) VSync <= 0;
 		end
@@ -99,7 +97,6 @@ always @(posedge clk_sys) begin
 	end
 
 	if(ce_12mn) begin
-		ce_col <= ce_col ^ col_mod;
 		dotm <= hc[0];
 		if(!hc[0]) begin
 			dots <= {2'b00, dots[15:2]};
@@ -124,17 +121,23 @@ wire [1:0] R;
 wire G, B;
 assign {R[1], B, G, R[0]} = color ? comp[3:0] : {4{dotc[dotm]}};
 
-video_mixer #(.LINE_LENGTH(768)) video_mixer
+wire hq2x = (scale == 1);
+
+video_mixer #(.LINE_LENGTH(768), .HALF_DEPTH(1)) video_mixer
 (
 	.*,
-	.ce_pix(ce_12mp & ce_col),
+	.ce_pix(ce_12mp),
+	.ce_pix_actual(ce_12mp & (mode512 | ~dotm)),
+
+	.scanlines(scandoubler_disable ? 2'b00 : {scale == 3, scale == 2}),
 
 	.ypbpr_full(1),
 	.line_start(0),
+	.mono(0),
 
-	.R({4{R}}),
-	.G({8{G}}),
-	.B({8{B}})
+	.R({R, R[1]}),
+	.G({3{G}}),
+	.B({3{B}})
 );
 
 ///////////////////////////////////////////////////////////////////////////////////////

@@ -24,70 +24,63 @@
      N <= 512 ? 8 : \
      N <=1024 ? 9 : 10 )
 
-module hq2x_in
+module hq2x_in #(parameter LENGTH, parameter DWIDTH)
 (
 	input            clk,
 
 	input [AWIDTH:0] rdaddr,
 	input            rdbuf,
-	output    [17:0] q,
+	output[DWIDTH:0] q,
 
 	input [AWIDTH:0] wraddr,
 	input            wrbuf,
-	input     [17:0] data,
+	input [DWIDTH:0] data,
 	input            wren
 );
 
-	parameter  LENGTH = 768;
-
 	localparam AWIDTH = `BITS_TO_FIT(LENGTH);
-	wire [17:0] out[0:1];
+	wire [DWIDTH:0] out[2];
 	assign q = out[rdbuf];
 
-	hq2x_buf #(.NUMWORDS(LENGTH), .AWIDTH(AWIDTH)) buf0(clk,data,rdaddr,wraddr,wren && (wrbuf == 0),out[0]);
-	hq2x_buf #(.NUMWORDS(LENGTH), .AWIDTH(AWIDTH)) buf1(clk,data,rdaddr,wraddr,wren && (wrbuf == 1),out[1]);
+	hq2x_buf #(.NUMWORDS(LENGTH), .AWIDTH(AWIDTH), .DWIDTH(DWIDTH)) buf0(clk,data,rdaddr,wraddr,wren && (wrbuf == 0),out[0]);
+	hq2x_buf #(.NUMWORDS(LENGTH), .AWIDTH(AWIDTH), .DWIDTH(DWIDTH)) buf1(clk,data,rdaddr,wraddr,wren && (wrbuf == 1),out[1]);
 endmodule
 
 
-module hq2x_out
+module hq2x_out #(parameter LENGTH, parameter DWIDTH)
 (
 	input            clk,
 
 	input [AWIDTH:0] rdaddr,
 	input      [1:0] rdbuf,
-	output    [17:0] q,
+	output[DWIDTH:0] q,
 
 	input [AWIDTH:0] wraddr,
 	input      [1:0] wrbuf,
-	input     [17:0] data,
+	input [DWIDTH:0] data,
 	input            wren
 );
 
-	parameter LENGTH = 768;
-
 	localparam AWIDTH = `BITS_TO_FIT(LENGTH*2);
-	wire [17:0] out[0:3];
+	wire  [DWIDTH:0] out[4];
 	assign q = out[rdbuf];
 
-	hq2x_buf #(.NUMWORDS(LENGTH*2), .AWIDTH(AWIDTH)) buf0(clk,data,rdaddr,wraddr,wren && (wrbuf == 0),out[0]);
-	hq2x_buf #(.NUMWORDS(LENGTH*2), .AWIDTH(AWIDTH)) buf1(clk,data,rdaddr,wraddr,wren && (wrbuf == 1),out[1]);
-	hq2x_buf #(.NUMWORDS(LENGTH*2), .AWIDTH(AWIDTH)) buf2(clk,data,rdaddr,wraddr,wren && (wrbuf == 2),out[2]);
-	hq2x_buf #(.NUMWORDS(LENGTH*2), .AWIDTH(AWIDTH)) buf3(clk,data,rdaddr,wraddr,wren && (wrbuf == 3),out[3]);
+	hq2x_buf #(.NUMWORDS(LENGTH*2), .AWIDTH(AWIDTH), .DWIDTH(DWIDTH)) buf0(clk,data,rdaddr,wraddr,wren && (wrbuf == 0),out[0]);
+	hq2x_buf #(.NUMWORDS(LENGTH*2), .AWIDTH(AWIDTH), .DWIDTH(DWIDTH)) buf1(clk,data,rdaddr,wraddr,wren && (wrbuf == 1),out[1]);
+	hq2x_buf #(.NUMWORDS(LENGTH*2), .AWIDTH(AWIDTH), .DWIDTH(DWIDTH)) buf2(clk,data,rdaddr,wraddr,wren && (wrbuf == 2),out[2]);
+	hq2x_buf #(.NUMWORDS(LENGTH*2), .AWIDTH(AWIDTH), .DWIDTH(DWIDTH)) buf3(clk,data,rdaddr,wraddr,wren && (wrbuf == 3),out[3]);
 endmodule
 
 
-module hq2x_buf 
+module hq2x_buf #(parameter NUMWORDS, parameter AWIDTH, parameter DWIDTH)
 (
 	input	            clock,
-	input	     [17:0] data,
+	input	 [DWIDTH:0] data,
 	input	 [AWIDTH:0] rdaddress,
 	input	 [AWIDTH:0] wraddress,
 	input	            wren,
-	output     [17:0] q
+	output [DWIDTH:0] q
 );
-
-	parameter NUMWORDS = 1536;
-	parameter AWIDTH   = 10;
 
 	altsyncram	altsyncram_component (
 				.address_a (wraddress),
@@ -107,7 +100,7 @@ module hq2x_buf
 				.clocken1 (1'b1),
 				.clocken2 (1'b1),
 				.clocken3 (1'b1),
-				.data_b ({18{1'b1}}),
+				.data_b ({(DWIDTH+1){1'b1}}),
 				.eccstatus (),
 				.q_a (),
 				.rden_a (1'b1),
@@ -130,8 +123,8 @@ module hq2x_buf
 		altsyncram_component.read_during_write_mode_mixed_ports = "DONT_CARE",
 		altsyncram_component.widthad_a = AWIDTH+1,
 		altsyncram_component.widthad_b = AWIDTH+1,
-		altsyncram_component.width_a = 18,
-		altsyncram_component.width_b = 18,
+		altsyncram_component.width_a = DWIDTH+1,
+		altsyncram_component.width_b = DWIDTH+1,
 		altsyncram_component.width_byteena_a = 1;
 
 endmodule
@@ -174,13 +167,24 @@ module InnerBlend
 	output [5:0] O
 );
 
+	function  [8:0] mul6x3;
+		input  [5:0] op1;
+		input  [2:0] op2;
+	begin
+		mul6x3 = 9'd0;
+		if(op2[0]) mul6x3 = mul6x3 + op1;
+		if(op2[1]) mul6x3 = mul6x3 + {op1, 1'b0};
+		if(op2[2]) mul6x3 = mul6x3 + {op1, 2'b00};
+	end
+	endfunction
+
 	wire OpOnes = Op[4];
-	wire [8:0] Amul = A * Op[7:5];
-	wire [7:0] Bmul = B * Op[3:2];
-	wire [7:0] Cmul = C * Op[1:0];
+	wire [8:0] Amul = mul6x3(A, Op[7:5]);
+	wire [8:0] Bmul = mul6x3(B, {Op[3:2], 1'b0});
+	wire [8:0] Cmul = mul6x3(C, {Op[1:0], 1'b0});
 	wire [8:0] At =  Amul;
-	wire [8:0] Bt = (OpOnes == 0) ? {Bmul, 1'b0} : {3'b0, B};
-	wire [8:0] Ct = (OpOnes == 0) ? {Cmul, 1'b0} : {3'b0, C};
+	wire [8:0] Bt = (OpOnes == 0) ? Bmul : {3'b0, B};
+	wire [8:0] Ct = (OpOnes == 0) ? Cmul : {3'b0, C};
 	wire [9:0] Res = {At, 1'b0} + Bt + Ct;
 	assign O = Op[8] ? A : Res[9:4];
 endmodule
@@ -262,22 +266,26 @@ module Blend
 	InnerBlend inner_blend3(op, Input1[17:12], Input2[17:12], Input3[17:12], Result[17:12]);
 endmodule
 
-module Hq2x
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+module Hq2x #(parameter LENGTH, parameter HALF_DEPTH)
 (
 	input               clk,
 	input               ce_x4,
-	input        [17:0] inputpixel,
+	input    [DWIDTH:0] inputpixel,
+	input               mono,
 	input               disable_hq2x,
 	input               reset_frame,
 	input               reset_line,
 	input         [1:0] read_y,
 	input  [AWIDTH+1:0] read_x,
-	output       [17:0] outpixel
+	output   [DWIDTH:0] outpixel
 );
 
-parameter  LENGTH = 768;
-localparam AWIDTH = `BITS_TO_FIT(LENGTH);
 
+localparam AWIDTH = `BITS_TO_FIT(LENGTH);
+localparam DWIDTH = HALF_DEPTH ? 8 : 17;
 
 wire [5:0] hqTable[256] = '{
 	19, 19, 26, 11, 19, 19, 26, 11, 23, 15, 47, 35, 23, 15, 55, 39,
@@ -318,21 +326,36 @@ wire [17:0] X = (i == 0) ? A : (i == 1) ? Prev1 : (i == 2) ? Next1 : G;
 wire [17:0] blend_result;
 Blend blender(hqTable[nextpatt], disable_hq2x, Curr0, X, B, D, F, H, blend_result);
 
-reg            Curr2_addr1;
-reg [AWIDTH:0] Curr2_addr2;
-wire    [17:0] Curr2;
+reg             Curr2_addr1;
+reg  [AWIDTH:0] Curr2_addr2;
+wire     [17:0] Curr2 = HALF_DEPTH ? h2rgb(Curr2tmp) : Curr2tmp;
+wire [DWIDTH:0] Curr2tmp;
 
-reg [AWIDTH:0] wrin_addr2;
-reg     [17:0] wrpix;
-reg            wrin_en;
+reg  [AWIDTH:0] wrin_addr2;
+reg  [DWIDTH:0] wrpix;
+reg             wrin_en;
 
-hq2x_in #(.LENGTH(LENGTH)) hq2x_in
+function [17:0] h2rgb;
+	input  [8:0] v;
+begin
+	h2rgb = mono ? {v[5:3],v[2:0], v[5:3],v[2:0], v[5:3],v[2:0]} : {v[8:6],v[8:6],v[5:3],v[5:3],v[2:0],v[2:0]};
+end
+endfunction
+
+function  [8:0] rgb2h;
+	input [17:0] v;
+begin
+	rgb2h = mono ? {3'b000, v[17:15], v[14:12]} : {v[17:15], v[11:9], v[5:3]};
+end
+endfunction
+
+hq2x_in #(.LENGTH(LENGTH), .DWIDTH(DWIDTH)) hq2x_in
 (
 	.clk(clk),
 
 	.rdaddr(Curr2_addr2),
 	.rdbuf(Curr2_addr1),
-	.q(Curr2),
+	.q(Curr2tmp),
 
 	.wraddr(wrin_addr2),
 	.wrbuf(iobuf),
@@ -340,13 +363,12 @@ hq2x_in #(.LENGTH(LENGTH)) hq2x_in
 	.wren(wrin_en)
 );
 
-
 reg         [1:0] wrout_addr1;
 reg  [AWIDTH+1:0] wrout_addr2;
 reg               wrout_en;
-reg        [17:0] wrdata;
+reg    [DWIDTH:0] wrdata;
 
-hq2x_out #(.LENGTH(LENGTH)) hq2x_out
+hq2x_out #(.LENGTH(LENGTH), .DWIDTH(DWIDTH)) hq2x_out
 (
 	.clk(clk),
 
@@ -383,7 +405,7 @@ always @(posedge clk) begin
 				Curr2_addr2 <= offs;
 			end
 			if (i == 2) begin
-				Next2 <= inputpixel;
+				Next2 <= HALF_DEPTH ? h2rgb(inputpixel) : inputpixel;
 				wrpix <= inputpixel;
 				wrin_addr2 <= offs;
 				wrin_en <= 1;
@@ -392,7 +414,9 @@ always @(posedge clk) begin
 				offs <= offs + 1'd1;
 			end
 
-			wrdata      <= blend_result;
+			if(HALF_DEPTH) wrdata <= rgb2h(blend_result);
+			else           wrdata <= blend_result;
+
 			wrout_addr1 <= {curbuf, i[1]};
 			wrout_addr2 <= {offs, i[1]^i[0]};
 			wrout_en    <= 1;
