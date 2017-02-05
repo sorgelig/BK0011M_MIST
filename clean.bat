@@ -12,4 +12,5 @@ del *.qws
 del *.ppf
 del *.qip
 del *.ddb
+del build_id.v
 pause
